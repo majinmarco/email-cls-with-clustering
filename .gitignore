@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# heavy files
+attachments/
+enron-email-dataset.zip
+emails.csv
+emails_expanded.csv
+notebooks/emails.csv
+notebooks/emails_expanded.csv
+
+# MLflow local tracking
+mlflow.db
+mlruns/
+mlartifacts/
+.mlflow/
+
+# Local caches (retrained talon classifier, etc.)
+.cache/
