@@ -25,3 +25,9 @@ mlartifacts/
 
 # Local caches (retrained talon classifier, etc.)
 .cache/
+
+# embeddings (huge files)
+*.npy
+# secrets
+.env
+**/.env
