@@ -41,10 +41,11 @@ uv run topic-model-emails
 
 Defaults match the notebook: UMAP `n_neighbors=15`, `n_components=5`, `min_dist=0.0`, cosine metric, `random_state=42`; HDBSCAN `min_cluster_size=50`, euclidean metric; BERTopic `calculate_probabilities` on; sentence-transformer model `ibm-granite/granite-embedding-97m-multilingual-r2`.
 
-Change one run from the command line. Flags override a `--config` JSON file whose keys are the same names (`min_cluster_size`, `n_neighbors`, `n_components`, `min_dist`, `umap_metric`, `random_state`, `hdbscan_metric`, `prediction_data`, `calculate_probabilities`, `embed_backend`, `embed_model`, `batch_size`, `max_seq_length`).
+Change one run from the command line. Flags override a `--config` JSON file whose keys are the same names (`min_cluster_size`, `n_neighbors`, `n_components`, `min_dist`, `umap_metric`, `random_state`, `hdbscan_metric`, `prediction_data`, `calculate_probabilities`, `embed_backend`, `embed_model`, `batch_size`, `max_seq_length`). A JSON list of objects is one topic-model run per object. `configs/min-cluster-size.json` runs `min_cluster_size` 100 and 200 and leaves the rest at the defaults.
 
 ```bash
 uv run topic-model-emails --min-cluster-size 80 --n-neighbors 20
+uv run topic-model-emails --config configs/min-cluster-size.json
 uv run topic-model-emails --config topic-params.json --min-dist 0.1
 uv run topic-model-emails --no-calculate-probabilities
 ```

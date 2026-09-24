@@ -54,13 +54,28 @@ def load_config(path: Path | None) -> dict[str, Any]:
     return raw
 
 
+def config_runs(path: Path | None) -> list[dict[str, Any]]:
+    """One object is one run. A list is one run per object, for a small sweep."""
+    if path is None:
+        return [{}]
+    raw = json.loads(path.read_text())
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, list) and raw and all(isinstance(item, dict) for item in raw):
+        return raw
+    raise ValueError(
+        f"Config {path} must be a JSON object or a non-empty list of objects"
+    )
+
+
 def add_hyperparam_args(parser: argparse.ArgumentParser) -> None:
     """Flags that override :class:`TopicHyperparams`. Omitted flags stay at defaults."""
     parser.add_argument(
         "--config",
         type=Path,
         default=None,
-        help="JSON object of TopicHyperparams fields. CLI flags override it.",
+        help="JSON object of TopicHyperparams fields, or a list of objects "
+        "for one run each. CLI flags override every run.",
     )
     parser.add_argument("--n-neighbors", type=int, default=None)
     parser.add_argument("--umap-components", type=int, default=None, dest="n_components")
@@ -116,8 +131,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def params_from_args(args: argparse.Namespace) -> TopicHyperparams:
-    overrides = {
+def overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    return {
         "n_neighbors": args.n_neighbors,
         "n_components": args.n_components,
         "min_dist": args.min_dist,
@@ -132,7 +147,10 @@ def params_from_args(args: argparse.Namespace) -> TopicHyperparams:
         "batch_size": args.batch_size,
         "max_seq_length": args.max_seq_length,
     }
-    return merge_params(load_config(args.config), overrides)
+
+
+def params_from_args(args: argparse.Namespace) -> TopicHyperparams:
+    return merge_params(load_config(args.config), overrides_from_args(args))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -141,9 +159,12 @@ def main(argv: list[str] | None = None) -> None:
     source = args.input or (data_dir / "emails_preprocessed.csv")
     output = args.output or (data_dir / DEFAULT_OUTPUT_NAME)
     env_file = args.env_file or (data_dir / ".env")
-    run_topic_model(
-        source,
-        output,
-        params_from_args(args),
-        env_file=env_file,
-    )
+    overrides = overrides_from_args(args)
+    runs = config_runs(args.config)
+    for index, config in enumerate(runs, start=1):
+        params = merge_params(config, overrides)
+        if len(runs) > 1:
+            print(
+                f"run {index}/{len(runs)} min_cluster_size={params.min_cluster_size}"
+            )
+        run_topic_model(source, output, params, env_file=env_file)
