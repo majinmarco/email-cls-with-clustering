@@ -16,6 +16,12 @@ emails.csv
 emails_expanded.csv
 notebooks/emails.csv
 notebooks/emails_expanded.csv
+emails_preprocessed.csv
+notebooks/emails_preprocessed.csv
+emails_clustered*.csv
+notebooks/emails_clustered*.csv
+emails_clustered*.json
+notebooks/emails_clustered*.json
 
 # MLflow local tracking
 mlflow.db
@@ -28,6 +34,9 @@ mlartifacts/
 
 # embeddings (huge files)
 *.npy
+notebooks/embeddings_sentence_transformer_ibm-granite_granite-embedding-97m-multilingual-r2.npy
+notebooks/embeddings_openai_text-embedding-3-small.npy
+
 # secrets
 .env
 **/.env

@@ -9,6 +9,8 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "accelerate>=1.15.0",
+    "bertopic>=0.17.0",
+    "hdbscan>=0.8.40",
     "ipykernel>=7.3.0",
     "joblib>=1.6.0",
     "jupyter>=1.1.1",
@@ -22,17 +24,26 @@ dependencies = [
     "scikit-learn-extra>=0.3.0",
     "seaborn>=0.13.2",
     "sentence-transformers>=6.1.0",
+    "spacy>=3.8.0",
     "talon>=1.4.4",
     "tiktoken>=0.14.0",
     "torch>=2.14.0",
+    "tqdm>=4.67.0",
+    "umap-learn>=0.5.9",
 ]
 
 [project.scripts]
 email-cls-with-clustering = "email_cls_with_clustering:main"
+preprocess-emails = "email_cls_with_clustering.commands.preprocess:main"
+topic-model-emails = "email_cls_with_clustering.commands.topic_model:main"
+run-email-pipeline = "email_cls_with_clustering.commands.pipeline:main"
 
 [build-system]
 requires = ["uv_build>=0.12.9,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
 
 [tool.uv.sources]
 torch = { index = "pytorch-rocm" }

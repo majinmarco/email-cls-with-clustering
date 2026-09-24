@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from tqdm import tqdm
 
 _TALON: tuple[Any, Any] | None = None
 
@@ -107,13 +108,18 @@ def parse_email(
     return record
 
 
-def expand_emails(frame: pd.DataFrame, *, save_attachments: bool = False) -> pd.DataFrame:
+def expand_emails(
+    frame: pd.DataFrame,
+    *,
+    save_attachments: bool = False,
+    progress: bool = False,
+) -> pd.DataFrame:
     """Expand a ``file`` / ``message`` frame into one row per parsed email.
 
     Every header on a message becomes its own column (``From``, ``To``,
     ``X-Folder``, ...). A header that is absent on a row is left empty.
     Attachment bytes are written under ``./attachments`` only when
-    ``save_attachments`` is true.
+    ``save_attachments`` is true. ``progress`` shows a tqdm bar over messages.
     """
     if "message" not in frame.columns:
         raise KeyError("frame must include a 'message' column")
@@ -124,6 +130,9 @@ def expand_emails(frame: pd.DataFrame, *, save_attachments: bool = False) -> pd.
         save_dir.mkdir(parents=True, exist_ok=True)
 
     files = frame["file"] if "file" in frame.columns else [""] * len(frame)
+    pairs = zip(files, frame["message"], strict=True)
+    if progress:
+        pairs = tqdm(pairs, total=len(frame), desc="expand emails")
     records = [
         _flat_record(
             parse_email(
@@ -132,7 +141,7 @@ def expand_emails(frame: pd.DataFrame, *, save_attachments: bool = False) -> pd.
                 save_dir=save_dir,
             )
         )
-        for file, message in zip(files, frame["message"], strict=True)
+        for file, message in pairs
     ]
     expanded = pd.DataFrame.from_records(records)
     return expanded.reindex(columns=_column_order(expanded.columns))
