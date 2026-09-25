@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from email_cls_with_clustering.embeddings import (
@@ -76,7 +77,10 @@ def fit_topics(
     cache_dir: Path,
     env_file: Path | None = None,
 ):
-    """Embed ``full_message`` (cached) and fit BERTopic. Returns ``(frame, model, cache)``."""
+    """Embed ``full_message`` (cached) and fit BERTopic.
+
+    Returns ``(frame, model, cache, probabilities, embeddings)``.
+    """
     from bertopic import BERTopic
     from hdbscan import HDBSCAN
     from sklearn.feature_extraction.text import CountVectorizer
@@ -84,14 +88,15 @@ def fit_topics(
     from spacy.lang.es.stop_words import STOP_WORDS as ES_STOP
     from umap import UMAP
 
-    if "full_message" not in frame.columns:
-        raise KeyError("frame must include a 'full_message' column")
+    if "embed_text" not in frame.columns or "ctfidf_text" not in frame.columns:
+        raise KeyError("frame must include 'embed_text' and 'ctfidf_text' columns")
 
-    texts = frame["full_message"].fillna("").astype(str).tolist()
+    embed_texts_col = frame["embed_text"].fillna("").astype(str).tolist()
+    ctfidf_texts = frame["ctfidf_text"].fillna("").astype(str).tolist()
     model_name = params.resolved_embed_model()
     cache_path = embedding_cache_path(cache_dir, params.embed_backend, model_name)
     embeddings = load_or_embed(
-        texts,
+        embed_texts_col,
         cache_path,
         backend=params.embed_backend,
         model=model_name,
@@ -121,13 +126,20 @@ def fit_topics(
         calculate_probabilities=params.calculate_probabilities,
         verbose=True,
     )
-    topics, probs = topic_model.fit_transform(texts, embeddings)
+    topics, probs = topic_model.fit_transform(ctfidf_texts, embeddings)
 
     labeled = frame.copy()
     labeled["topic"] = topics
-    if probs is not None:
-        labeled["prob_vector"] = list(probs)
-    return labeled, topic_model, cache_path
+    return labeled, topic_model, cache_path, probs, embeddings
+
+
+def save_topic_model(topic_model, path: Path) -> Path:
+    """Persist a fitted BERTopic model (pickle) for later load / transform."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Pickle keeps UMAP/HDBSCAN so ``transform`` works on new embeddings.
+    # Embedding model is already None (embeddings are precomputed).
+    topic_model.save(str(path), serialization="pickle", save_embedding_model=False)
+    return path
 
 
 def write_topic_dataset(
@@ -137,19 +149,30 @@ def write_topic_dataset(
     *,
     source: Path,
     cache_path: Path,
+    topic_model=None,
+    probabilities=None,
     when: datetime | None = None,
 ) -> Path:
-    """Write ``output`` with a datetime suffix and a sibling JSON of the run."""
+    """Write ``output`` with a datetime suffix, model file, and sibling JSON."""
     moment = when or datetime.now()
     stamped = timestamped_output(output, when=moment)
     stamped.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(stamped, index=False)
+    if probabilities is not None:
+        np.save(stamped.with_name(f"{stamped.stem}_probs.npy"), np.asarray(probabilities))
+
+    model_path = None
+    if topic_model is not None:
+        model_path = stamped.with_name(f"{stamped.stem}_model.pkl")
+        save_topic_model(topic_model, model_path)
+        print(f"wrote {model_path}")
 
     sidecar = stamped.with_suffix(".json")
     payload = {
         "created_at": moment.strftime("%Y-%m-%dT%H:%M:%S"),
         "input": str(source),
         "output": str(stamped),
+        "topic_model": str(model_path) if model_path else None,
         "embedding_cache": str(cache_path),
         "n_documents": int(len(frame)),
         "hyperparameters": asdict(params),

@@ -8,11 +8,12 @@ from pathlib import Path
 import numpy as np
 import torch
 from tqdm import tqdm
+import hashlib
 
 EMBED_BACKEND = "sentence_transformer"
 
-ST_MODEL = "ibm-granite/granite-embedding-97m-multilingual-r2"
-ST_MAX_SEQ_LENGTH = 2048
+ST_MODEL = "BAAI/bge-small-en-v1.5"
+ST_MAX_SEQ_LENGTH = 512
 ST_BATCH_SIZE = 32
 
 OPENAI_MODEL = "text-embedding-3-small"
@@ -37,6 +38,13 @@ def active_embed_model(backend: str | None = None, model: str | None = None) -> 
         f"Unknown backend={backend!r}; use 'sentence_transformer' or 'openai'"
     )
 
+def texts_fingerprint(texts: list[str]) -> str:
+    """Stable content hash of the exact texts that produced a cache."""
+    digest = hashlib.blake2b(digest_size=16)
+    for text in texts:
+        digest.update(text.encode("utf-8", "surrogatepass"))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 def embedding_cache_path(directory: Path, backend: str, model: str) -> Path:
     """Cache file keyed by backend and model so dimensions are not mixed."""
@@ -58,6 +66,7 @@ def embed_texts(
     ``backend`` defaults to :data:`EMBED_BACKEND`.
     """
     backend = backend or EMBED_BACKEND
+
     cleaned = _clean_texts(texts)
 
     if backend == "sentence_transformer":
@@ -104,12 +113,15 @@ def load_or_embed(
 ) -> np.ndarray:
     """Load ``cache_path`` when its row count matches ``texts``, else embed and save."""
     backend = backend or EMBED_BACKEND
+    stamp_path = cache_path.with_suffix(".fingerprint")
+    fingerprint = texts_fingerprint(texts)
     if cache_path.exists():
         embeddings = np.load(cache_path)
-        if len(embeddings) != len(texts):
+        stored = stamp_path.read_text().strip() if stamp_path.exists() else None
+        if len(embeddings) != len(texts) or stored != fingerprint:
             raise ValueError(
-                f"Cache length {len(embeddings)} != {len(texts)} texts — "
-                f"delete {cache_path} and re-run"
+                f"Cache at {cache_path} does not match texts — "
+                f"Delete and re-run"
             )
         print(f"loaded embeddings from {cache_path} → shape={embeddings.shape}")
         return embeddings
@@ -126,6 +138,7 @@ def load_or_embed(
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(cache_path, embeddings)
+    stamp_path.write_text(fingerprint)
     print(f"saved embeddings → {cache_path} shape={embeddings.shape}")
     return embeddings
 

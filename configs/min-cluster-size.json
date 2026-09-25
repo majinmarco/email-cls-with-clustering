@@ -1,4 +1,12 @@
 [
+  {"min_cluster_size": 50},
   {"min_cluster_size": 100},
-  {"min_cluster_size": 200}
+  {"min_cluster_size": 150},
+  {"min_cluster_size": 200},
+  {"min_cluster_size": 250},
+  {"min_cluster_size": 300},
+  {"min_cluster_size": 350},
+  {"min_cluster_size": 400},
+  {"min_cluster_size": 450},
+  {"min_cluster_size": 500}
 ]

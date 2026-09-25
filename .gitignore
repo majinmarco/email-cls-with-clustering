@@ -22,7 +22,8 @@ emails_clustered*.csv
 notebooks/emails_clustered*.csv
 emails_clustered*.json
 notebooks/emails_clustered*.json
-
+emails_clustered*_model.pkl
+notebooks/emails_clustered*_model.pkl
 # MLflow local tracking
 mlflow.db
 mlruns/

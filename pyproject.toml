@@ -10,6 +10,7 @@ requires-python = ">=3.13"
 dependencies = [
     "accelerate>=1.15.0",
     "bertopic>=0.17.0",
+    "gensim>=4.4.0",
     "hdbscan>=0.8.40",
     "ipykernel>=7.3.0",
     "joblib>=1.6.0",
@@ -51,3 +52,8 @@ torch = { index = "pytorch-rocm" }
 [[tool.uv.index]]
 name = "pytorch-rocm"
 url = "https://download.pytorch.org/whl/rocm7.14"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

@@ -35,15 +35,22 @@ def preprocess_full_message(msg: str) -> str:
 
 
 def prepare_messages(frame: pd.DataFrame, *, progress: bool = False) -> pd.DataFrame:
-    """Build, dedupe, and clean ``full_message``. Returns a new frame."""
+    """Build ``embed_text`` (raw) and ``ctfidf_text`` (scrubbed). Returns a new frame."""
     if "Subject" not in frame.columns or "body" not in frame.columns:
         raise KeyError("frame must include 'Subject' and 'body' columns")
 
     prepared = frame.copy()
-    prepared["full_message"] = prepared["Subject"] + " " + prepared["body"]
-    prepared = prepared.drop_duplicates(subset=["full_message"])
+    subject = prepared["Subject"].fillna("").astype(str).str.strip()
+    body = prepared["body"].fillna("").astype(str).str.strip()
+    prepared["embed_text"] = (subject + " " + body).str.strip()
 
-    messages = prepared["full_message"].tolist()
-    iterator = tqdm(messages, desc="clean full_message") if progress else messages
-    prepared["full_message"] = [preprocess_full_message(msg) for msg in iterator]
+    # Drop genuinely empty rows first, so they do not all dedupe into one.
+    prepared = prepared[prepared["embed_text"].str.len() > 0]
+    prepared = prepared.drop_duplicates(subset=["embed_text"])
+
+    messages = prepared["embed_text"].tolist()
+    iterator = tqdm(messages, desc="clean ctfidf_text") if progress else messages
+    prepared["ctfidf_text"] = [preprocess_full_message(msg) for msg in iterator]
+    # Keep the old name as an alias so nothing downstream breaks yet.
+    prepared["full_message"] = prepared["embed_text"]
     return prepared.reset_index(drop=True)

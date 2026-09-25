@@ -17,7 +17,33 @@ from email_cls_with_clustering.topics import (
     write_topic_dataset,
 )
 
+import mlflow
+from dataclasses import asdict
+from email_cls_with_clustering.evaluate import score_run
+from email_cls_with_clustering.tracking import setup_tracking
+
 DEFAULT_OUTPUT_NAME = "emails_clustered.csv"
+
+
+def params_for_mlflow(params: TopicHyperparams) -> dict[str, Any]:
+    """Hyperparameters plus the concrete embedding model id."""
+    logged: dict[str, Any] = {
+        key: value for key, value in asdict(params).items() if value is not None
+    }
+    logged["embed_model_resolved"] = params.resolved_embed_model()
+    return logged
+
+
+def topic_info_frame(topic_model) -> pd.DataFrame:
+    """``get_topic_info()`` with list columns serialized for ``mlflow.log_table``."""
+    info = topic_model.get_topic_info().copy()
+    for column in info.columns:
+        if info[column].dtype != object:
+            continue
+        info[column] = info[column].map(
+            lambda value: value if isinstance(value, str) else json.dumps(value, default=str)
+        )
+    return info
 
 
 def run_topic_model(
@@ -26,23 +52,44 @@ def run_topic_model(
     params: TopicHyperparams,
     *,
     env_file: Path | None = None,
+    coherence: bool = True,
+    dbcv: bool = True,
+    nested: bool = False,
 ) -> Path:
-    """Load a cleaned CSV, fit topics, and write a timestamped dataset."""
+    """Load a cleaned CSV, fit topics, score the run, and write a timestamped dataset."""
     frame = pd.read_csv(source)
     print(f"loaded {len(frame)} rows from {source}")
-    labeled, _model, cache_path = fit_topics(
-        frame,
-        params,
-        cache_dir=source.parent,
-        env_file=env_file,
-    )
-    return write_topic_dataset(
-        labeled,
-        output,
-        params,
-        source=source,
-        cache_path=cache_path,
-    )
+    setup_tracking()
+    with mlflow.start_run(run_name=f"mcs-{params.min_cluster_size}", nested=nested):
+        labeled, model, cache_path, probs, embeddings = fit_topics(
+            frame,
+            params,
+            cache_dir=source.parent,
+            env_file=env_file,
+        )
+        texts = labeled["ctfidf_text"].fillna("").astype(str).tolist()
+        metrics = score_run(
+            model,
+            labeled["topic"].to_numpy(),
+            texts=texts,
+            embeddings=embeddings,
+            probabilities=probs,
+            include_coherence=coherence,
+            include_dbcv=dbcv,
+        )
+        mlflow.log_params(params_for_mlflow(params))
+        if metrics:
+            mlflow.log_metrics(metrics)
+        mlflow.log_table(topic_info_frame(model), "topic_info.json")
+        return write_topic_dataset(
+            labeled,
+            output,
+            params,
+            source=source,
+            cache_path=cache_path,
+            topic_model=model,
+            probabilities=probs,
+        )
 
 
 def load_config(path: Path | None) -> dict[str, Any]:
@@ -110,6 +157,20 @@ def add_hyperparam_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_eval_args(parser: argparse.ArgumentParser) -> None:
+    """Flags that skip the slow scores. Both scores run unless turned off."""
+    parser.add_argument(
+        "--no-coherence",
+        action="store_true",
+        help="Skip c_npmi coherence. It is on by default.",
+    )
+    parser.add_argument(
+        "--no-dbcv",
+        action="store_true",
+        help="Skip DBCV on the original embeddings. It is on by default.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Fit BERTopic and write emails_clustered_<datetime>.csv.",
@@ -128,6 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
         f"Defaults to notebooks/{DEFAULT_OUTPUT_NAME}.",
     )
     add_hyperparam_args(parser)
+    add_eval_args(parser)
     return parser
 
 
@@ -161,10 +223,22 @@ def main(argv: list[str] | None = None) -> None:
     env_file = args.env_file or (data_dir / ".env")
     overrides = overrides_from_args(args)
     runs = config_runs(args.config)
-    for index, config in enumerate(runs, start=1):
-        params = merge_params(config, overrides)
-        if len(runs) > 1:
+    score_kwargs = {
+        "env_file": env_file,
+        "coherence": not args.no_coherence,
+        "dbcv": not args.no_dbcv,
+    }
+    if len(runs) == 1:
+        run_topic_model(source, output, merge_params(runs[0], overrides), **score_kwargs)
+        return
+    setup_tracking()
+    with mlflow.start_run(run_name="sweep"):
+        mlflow.log_param("n_runs", len(runs))
+        for index, config in enumerate(runs, start=1):
+            params = merge_params(config, overrides)
             print(
                 f"run {index}/{len(runs)} min_cluster_size={params.min_cluster_size}"
             )
-        run_topic_model(source, output, params, env_file=env_file)
+            run_topic_model(
+                source, output, params, nested=True, **score_kwargs
+            )
