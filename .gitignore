@@ -33,6 +33,10 @@ mlartifacts/
 # Local caches (retrained talon classifier, etc.)
 .cache/
 
+# HPO trial records and advanced.json
+notebooks/hpo/
+*.fingerprint
+
 # embeddings (huge files)
 *.npy
 notebooks/embeddings_sentence_transformer_ibm-granite_granite-embedding-97m-multilingual-r2.npy

@@ -12,7 +12,7 @@ import hashlib
 
 EMBED_BACKEND = "sentence_transformer"
 
-ST_MODEL = "BAAI/bge-small-en-v1.5"
+ST_MODEL = "ibm-granite/granite-embedding-97m-multilingual-r2"
 ST_MAX_SEQ_LENGTH = 512
 ST_BATCH_SIZE = 32
 
@@ -46,10 +46,27 @@ def texts_fingerprint(texts: list[str]) -> str:
         digest.update(b"\0")
     return digest.hexdigest()
 
-def embedding_cache_path(directory: Path, backend: str, model: str) -> Path:
-    """Cache file keyed by backend and model so dimensions are not mixed."""
+
+def apply_prompt(texts: list[str], prompt: str) -> list[str]:
+    """Prefix each text. An empty prompt leaves the texts unchanged."""
+    if not prompt:
+        return list(texts)
+    return [f"{prompt}{text}" for text in texts]
+
+
+def embedding_cache_path(
+    directory: Path,
+    backend: str,
+    model: str,
+    prompt: str = "",
+) -> Path:
+    """Cache file keyed by backend, model, and prompt so dimensions are not mixed."""
     safe = model.replace("/", "_")
-    return directory / f"embeddings_{backend}_{safe}.npy"
+    name = f"embeddings_{backend}_{safe}"
+    if prompt:
+        digest = hashlib.blake2b(prompt.encode("utf-8"), digest_size=8).hexdigest()
+        name = f"{name}_{digest}"
+    return directory / f"{name}.npy"
 
 
 def embed_texts(
@@ -60,14 +77,16 @@ def embed_texts(
     model: str | None = None,
     max_seq_length: int = ST_MAX_SEQ_LENGTH,
     env_file: Path | None = None,
+    prompt: str = "",
 ) -> np.ndarray:
     """Embed texts with sentence-transformers or OpenAI.
 
-    ``backend`` defaults to :data:`EMBED_BACKEND`.
+    ``backend`` defaults to :data:`EMBED_BACKEND`. ``prompt`` is prefixed
+    before encoding so a model such as nomic can receive ``clustering: ``.
     """
     backend = backend or EMBED_BACKEND
 
-    cleaned = _clean_texts(texts)
+    cleaned = _clean_texts(apply_prompt(texts, prompt))
 
     if backend == "sentence_transformer":
         st_model = _ensure_sentence_transformer(model, max_seq_length)
@@ -110,21 +129,29 @@ def load_or_embed(
     batch_size: int | None = None,
     max_seq_length: int = ST_MAX_SEQ_LENGTH,
     env_file: Path | None = None,
+    prompt: str = "",
 ) -> np.ndarray:
-    """Load ``cache_path`` when its row count matches ``texts``, else embed and save."""
+    """Load ``cache_path`` when it matches ``texts``, else delete it and re-embed.
+
+    The prompt is part of the fingerprint, so ``clustering: `` cannot reuse a
+    cache built from the unprefixed texts.
+    """
     backend = backend or EMBED_BACKEND
+    prompted = apply_prompt(texts, prompt)
     stamp_path = cache_path.with_suffix(".fingerprint")
-    fingerprint = texts_fingerprint(texts)
+    fingerprint = texts_fingerprint(prompted)
     if cache_path.exists():
         embeddings = np.load(cache_path)
         stored = stamp_path.read_text().strip() if stamp_path.exists() else None
-        if len(embeddings) != len(texts) or stored != fingerprint:
-            raise ValueError(
-                f"Cache at {cache_path} does not match texts — "
-                f"Delete and re-run"
-            )
-        print(f"loaded embeddings from {cache_path} → shape={embeddings.shape}")
-        return embeddings
+        if len(embeddings) == len(prompted) and stored == fingerprint:
+            print(f"loaded embeddings from {cache_path} → shape={embeddings.shape}")
+            return embeddings
+        cache_path.unlink()
+        if stamp_path.exists():
+            stamp_path.unlink()
+        print(f"invalidated stale embedding cache at {cache_path}")
+    elif stamp_path.exists():
+        stamp_path.unlink()
 
     if backend == "sentence_transformer" and torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -135,6 +162,7 @@ def load_or_embed(
         model=model,
         max_seq_length=max_seq_length,
         env_file=env_file,
+        prompt=prompt,
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(cache_path, embeddings)
@@ -152,6 +180,7 @@ def _ensure_sentence_transformer(model: str | None, max_seq_length: int):
         _st_model = SentenceTransformer(
             model_name,
             device="cuda" if torch.cuda.is_available() else "cpu",
+            trust_remote_code=True,
         )
         _st_model._email_cls_model_name = model_name  # type: ignore[attr-defined]
     _st_model.max_seq_length = max_seq_length

@@ -14,24 +14,17 @@ from email_cls_with_clustering.topics import (
     TopicHyperparams,
     fit_topics,
     merge_params,
+    params_for_mlflow,
     write_topic_dataset,
 )
 
 import mlflow
-from dataclasses import asdict
 from email_cls_with_clustering.evaluate import score_run
 from email_cls_with_clustering.tracking import setup_tracking
 
 DEFAULT_OUTPUT_NAME = "emails_clustered.csv"
 
-
-def params_for_mlflow(params: TopicHyperparams) -> dict[str, Any]:
-    """Hyperparameters plus the concrete embedding model id."""
-    logged: dict[str, Any] = {
-        key: value for key, value in asdict(params).items() if value is not None
-    }
-    logged["embed_model_resolved"] = params.resolved_embed_model()
-    return logged
+__all__ = ["params_for_mlflow", "main", "run_topic_model"]
 
 
 def topic_info_frame(topic_model) -> pd.DataFrame:
@@ -68,12 +61,18 @@ def run_topic_model(
             env_file=env_file,
         )
         texts = labeled["ctfidf_text"].fillna("").astype(str).tolist()
+        ground_truth = (
+            labeled["ground_truth"].to_numpy()
+            if "ground_truth" in labeled.columns
+            else None
+        )
         metrics = score_run(
             model,
             labeled["topic"].to_numpy(),
             texts=texts,
             embeddings=embeddings,
             probabilities=probs,
+            ground_truth=ground_truth,
             include_coherence=coherence,
             include_dbcv=dbcv,
         )
@@ -129,10 +128,19 @@ def add_hyperparam_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-dist", type=float, default=None)
     parser.add_argument("--umap-metric", default=None)
     parser.add_argument("--random-state", type=int, default=None)
+    parser.add_argument("--umap-n-jobs", type=int, default=None, dest="n_jobs")
     parser.add_argument("--min-cluster-size", type=int, default=None)
+    parser.add_argument("--min-samples", type=int, default=None)
     parser.add_argument("--hdbscan-metric", default=None)
+    parser.add_argument("--cluster-selection-method", default=None)
+    parser.add_argument("--cluster-selection-epsilon", type=float, default=None)
     parser.add_argument(
         "--prediction-data",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument(
+        "--gen-min-span-tree",
         action=argparse.BooleanOptionalAction,
         default=None,
     )
@@ -147,8 +155,22 @@ def add_hyperparam_args(parser: argparse.ArgumentParser) -> None:
         default=None,
     )
     parser.add_argument("--embed-model", default=None)
+    parser.add_argument("--embed-prompt", default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--max-seq-length", type=int, default=None)
+    parser.add_argument(
+        "--post-processing",
+        choices=("none", "mean_removal", "mean_removal_plus_top_k"),
+        default=None,
+    )
+    parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument(
+        "--ngram-range",
+        nargs=2,
+        type=int,
+        default=None,
+        metavar=("MIN", "MAX"),
+    )
     parser.add_argument(
         "--env-file",
         type=Path,
@@ -194,20 +216,30 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    ngram = args.ngram_range
     return {
         "n_neighbors": args.n_neighbors,
         "n_components": args.n_components,
         "min_dist": args.min_dist,
         "umap_metric": args.umap_metric,
         "random_state": args.random_state,
+        "n_jobs": args.n_jobs,
         "min_cluster_size": args.min_cluster_size,
+        "min_samples": args.min_samples,
         "hdbscan_metric": args.hdbscan_metric,
+        "cluster_selection_method": args.cluster_selection_method,
+        "cluster_selection_epsilon": args.cluster_selection_epsilon,
         "prediction_data": args.prediction_data,
+        "gen_min_span_tree": args.gen_min_span_tree,
         "calculate_probabilities": args.calculate_probabilities,
         "embed_backend": args.embed_backend,
         "embed_model": args.embed_model,
+        "embed_prompt": args.embed_prompt,
         "batch_size": args.batch_size,
         "max_seq_length": args.max_seq_length,
+        "post_processing": args.post_processing,
+        "top_k": args.top_k,
+        "ngram_range": tuple(ngram) if ngram is not None else None,
     }
 
 

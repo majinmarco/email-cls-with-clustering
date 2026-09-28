@@ -1,0 +1,464 @@
+{
+  "parent_run_id": "735e206a162647558b93cd02a9098074",
+  "trial_id": "BAAI_bge-small-en-v1.5__mean_removal_plus_top_k__k2__umap_nc25_nn50__mcs50_ms15_eom_eps0.0__c-tf-idf__thr0.05",
+  "model_path": "/home/marco/development/email-cls-with-clustering/notebooks/emails_clustered_BAAI_bge-small-en-v1.5__mean_removal_plus_top_k__k2__umap_nc25_nn50__mcs50_ms15_eom_eps0.0__c-tf-idf__thr0.05_20260926T223827_model.pkl",
+  "metrics": {
+    "noise_share": 0.045264915340605436,
+    "coherence_c_npmi": 0.11882221125183591,
+    "n_topics": 553.0
+  },
+  "results": [
+    {
+      "index": 0,
+      "topic_id": 440,
+      "shown": [
+        "variances",
+        "enrj",
+        "loadid",
+        "tblloads",
+        "met",
+        "detected"
+      ],
+      "guess": "enrj",
+      "answer": "met",
+      "correct": false
+    },
+    {
+      "index": 1,
+      "topic_id": 65,
+      "shown": [
+        "guaranty",
+        "guarantor",
+        "clement",
+        "password",
+        "obligations",
+        "form"
+      ],
+      "guess": "password",
+      "answer": "password",
+      "correct": true
+    },
+    {
+      "index": 2,
+      "topic_id": 54,
+      "shown": [
+        "report",
+        "01271997",
+        "weekly",
+        "monthly",
+        "bisttram",
+        "attached"
+      ],
+      "guess": "01271997",
+      "answer": "bisttram",
+      "correct": false
+    },
+    {
+      "index": 3,
+      "topic_id": 437,
+      "shown": [
+        "dj",
+        "caliso",
+        "hoffmanpdxect",
+        "awordaday",
+        "pwr",
+        "carla"
+      ],
+      "guess": null,
+      "answer": "awordaday",
+      "correct": false
+    },
+    {
+      "index": 4,
+      "topic_id": 89,
+      "shown": [
+        "mou",
+        "assembly",
+        "bill",
+        "reichel",
+        "senate",
+        "sb"
+      ],
+      "guess": null,
+      "answer": "reichel",
+      "correct": false
+    },
+    {
+      "index": 5,
+      "topic_id": 107,
+      "shown": [
+        "pspan",
+        "alignleft",
+        "deal",
+        "classemailtextblack",
+        "wine",
+        "wines"
+      ],
+      "guess": null,
+      "answer": "deal",
+      "correct": false
+    },
+    {
+      "index": 6,
+      "topic_id": 133,
+      "shown": [
+        "caps",
+        "california",
+        "migdenna",
+        "cap",
+        "ferc",
+        "iso"
+      ],
+      "guess": null,
+      "answer": "migdenna",
+      "correct": false
+    },
+    {
+      "index": 7,
+      "topic_id": 416,
+      "shown": [
+        "tel",
+        "houston",
+        "mmbtus",
+        "ste",
+        "family",
+        "tx"
+      ],
+      "guess": null,
+      "answer": "mmbtus",
+      "correct": false
+    },
+    {
+      "index": 8,
+      "topic_id": 371,
+      "shown": [
+        "azurix",
+        "rab",
+        "dependence",
+        "azurixs",
+        "water",
+        "wessex"
+      ],
+      "guess": null,
+      "answer": "dependence",
+      "correct": false
+    },
+    {
+      "index": 9,
+      "topic_id": 70,
+      "shown": [
+        "approval",
+        "request",
+        "pending",
+        "overdue",
+        "eol",
+        "resource"
+      ],
+      "guess": null,
+      "answer": "eol",
+      "correct": false
+    },
+    {
+      "index": 10,
+      "topic_id": 155,
+      "shown": [
+        "hunting",
+        "hunt",
+        "plan",
+        "lease",
+        "fishing",
+        "deer"
+      ],
+      "guess": null,
+      "answer": "plan",
+      "correct": false
+    },
+    {
+      "index": 11,
+      "topic_id": 81,
+      "shown": [
+        "play",
+        "soccer",
+        "london",
+        "tonight",
+        "game",
+        "softball"
+      ],
+      "guess": null,
+      "answer": "london",
+      "correct": false
+    },
+    {
+      "index": 12,
+      "topic_id": 444,
+      "shown": [
+        "wrote",
+        "palo",
+        "epmi",
+        "op",
+        "term",
+        "sp15"
+      ],
+      "guess": null,
+      "answer": "wrote",
+      "correct": false
+    },
+    {
+      "index": 13,
+      "topic_id": 469,
+      "shown": [
+        "exotics",
+        "karthik",
+        "exotica",
+        "complete",
+        "zimin",
+        "library"
+      ],
+      "guess": null,
+      "answer": "complete",
+      "correct": false
+    },
+    {
+      "index": 14,
+      "topic_id": 147,
+      "shown": [
+        "ptr",
+        "oneoks",
+        "divdivgt",
+        "oneok",
+        "measurement",
+        "bushton"
+      ],
+      "guess": null,
+      "answer": "divdivgt",
+      "correct": false
+    },
+    {
+      "index": 15,
+      "topic_id": 212,
+      "shown": [
+        "cal",
+        "otmc",
+        "develop",
+        "spreads",
+        "otmp",
+        "std"
+      ],
+      "guess": null,
+      "answer": "develop",
+      "correct": false
+    },
+    {
+      "index": 16,
+      "topic_id": 4,
+      "shown": [
+        "attached",
+        "memo",
+        "draft",
+        "comments",
+        "tva",
+        "caliper"
+      ],
+      "guess": null,
+      "answer": "caliper",
+      "correct": false
+    },
+    {
+      "index": 17,
+      "topic_id": 430,
+      "shown": [
+        "kb",
+        "items",
+        "browser",
+        "reaches",
+        "size",
+        "mailbox"
+      ],
+      "guess": null,
+      "answer": "browser",
+      "correct": false
+    },
+    {
+      "index": 18,
+      "topic_id": 512,
+      "shown": [
+        "north",
+        "ben",
+        "models",
+        "model",
+        "marketpoint",
+        "pathed"
+      ],
+      "guess": null,
+      "answer": "north",
+      "correct": false
+    },
+    {
+      "index": 19,
+      "topic_id": 250,
+      "shown": [
+        "firstofthemonth",
+        "fom",
+        "daren",
+        "volumes",
+        "ces",
+        "labelled"
+      ],
+      "guess": null,
+      "answer": "daren",
+      "correct": false
+    },
+    {
+      "index": 20,
+      "topic_id": 245,
+      "shown": [
+        "sender",
+        "detected",
+        "suisse",
+        "csfb",
+        "mistransmission",
+        "views"
+      ],
+      "guess": null,
+      "answer": "detected",
+      "correct": false
+    },
+    {
+      "index": 21,
+      "topic_id": 402,
+      "shown": [
+        "internet",
+        "ectrt",
+        "schedule",
+        "engytype",
+        "interchgid",
+        "tiepoint"
+      ],
+      "guess": null,
+      "answer": "internet",
+      "correct": false
+    },
+    {
+      "index": 22,
+      "topic_id": 112,
+      "shown": [
+        "02",
+        "000",
+        "storage",
+        "enerfax",
+        "nuclear",
+        "natural"
+      ],
+      "guess": null,
+      "answer": "nuclear",
+      "correct": false
+    },
+    {
+      "index": 23,
+      "topic_id": 544,
+      "shown": [
+        "allemployee",
+        "hyatt",
+        "meeting",
+        "iptv",
+        "reviews",
+        "ballroom"
+      ],
+      "guess": null,
+      "answer": "reviews",
+      "correct": false
+    },
+    {
+      "index": 24,
+      "topic_id": 143,
+      "shown": [
+        "visit",
+        "vince",
+        "shirley",
+        "shijie",
+        "houston",
+        "votes"
+      ],
+      "guess": null,
+      "answer": "votes",
+      "correct": false
+    },
+    {
+      "index": 25,
+      "topic_id": 550,
+      "shown": [
+        "gtcsale",
+        "livelink",
+        "moyez",
+        "formosa",
+        "legal",
+        "kien"
+      ],
+      "guess": null,
+      "answer": "legal",
+      "correct": false
+    },
+    {
+      "index": 26,
+      "topic_id": 88,
+      "shown": [
+        "belvieu",
+        "catalytica",
+        "ccsi",
+        "swaps",
+        "raptor",
+        "swap"
+      ],
+      "guess": null,
+      "answer": "belvieu",
+      "correct": false
+    },
+    {
+      "index": 27,
+      "topic_id": 241,
+      "shown": [
+        "im",
+        "tomorrow",
+        "leave",
+        "myfamilycom",
+        "leaving",
+        "430"
+      ],
+      "guess": null,
+      "answer": "myfamilycom",
+      "correct": false
+    },
+    {
+      "index": 28,
+      "topic_id": 419,
+      "shown": [
+        "bnp",
+        "find",
+        "ou",
+        "ce",
+        "paribas",
+        "toute"
+      ],
+      "guess": null,
+      "answer": "find",
+      "correct": false
+    },
+    {
+      "index": 29,
+      "topic_id": 458,
+      "shown": [
+        "tasters",
+        "cajun",
+        "pin",
+        "gourmet",
+        "church",
+        "recipes"
+      ],
+      "guess": null,
+      "answer": "pin",
+      "correct": false
+    }
+  ],
+  "n_answered": 3,
+  "score": 0.3333333333333333
+}

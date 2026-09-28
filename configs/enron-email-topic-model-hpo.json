@@ -1,0 +1,167 @@
+{
+  "job": "enron-email-topic-model-hpo",
+  "version": 1,
+  "description": "Staged hyperparameter search for the Enron BERTopic pipeline. Representation first, then UMAP, then HDBSCAN on cached projections, then outlier reduction.",
+  "prerequisites": {
+    "note": "Fixed changes applied before any trial. Not searched.",
+    "text": {
+      "embed_column": "embed_text",
+      "embed_text_preprocessing": "raw (no lowercasing, no punctuation stripping)",
+      "ctfidf_column": "ctfidf_text",
+      "strip_boilerplate_regex": "(?i)-+\\s*forwarded by .*?-+|\\[?IMAGE\\]?",
+      "drop_empty_before_dedupe": true,
+      "dedupe_after_cleaning": true,
+      "invalidate_embedding_cache": true
+    },
+    "embedding": {
+      "max_seq_length": 512,
+      "normalize_embeddings": true
+    },
+    "umap": {
+      "cache_projection_npy": true,
+      "random_state": null,
+      "n_jobs": -1
+    },
+    "hdbscan": {
+      "pass_min_samples_explicitly": true,
+      "metric": "euclidean",
+      "prediction_data": true,
+      "gen_min_span_tree": true
+    },
+    "vectorizer": {
+      "stop_words": "EN_STOP | ES_STOP",
+      "ngram_range": [1, 1]
+    },
+    "tracking": {
+      "mlflow": true,
+      "log_params": "all",
+      "log_metrics": "all in evaluation.metrics",
+      "json_sidecar": true
+    }
+  },
+  "evaluation": {
+    "metrics": {
+      "largest_topic_share": "share of documents in the largest non-noise topic",
+      "noise_share": "share of documents labelled -1, before outlier reduction",
+      "n_topics": "count of non-noise topics",
+      "min_peakedness": "min over topics of max top-10 c-TF-IDF weight",
+      "topic_diversity": { "topk": 10 },
+      "coherence": { "measure": "c_npmi", "topk": 10, "texts": "ctfidf_text" },
+      "dbcv": { "space": "original_embeddings", "sample": 20000, "seed": 42, "never_on": "umap_output" },
+      "anisotropy": { "sample": 5000, "report": ["mean_pairwise_cosine", "norm_of_mean_vector", "top_singular_energy_share"] },
+      "ground_truth": { "dataset": "LDC2007T22", "metrics": ["ami", "ari"], "optional": true }
+    },
+    "hard_gates": {
+      "largest_topic_share_max": 0.10,
+      "noise_share_max": 0.56,
+      "min_peakedness_min": 0.0,
+      "n_topics_min": 30
+    },
+    "ranking": {
+      "if_ground_truth_available": ["ami", "ari"],
+      "across_representations": ["coherence", "topic_diversity", "noise_share", "largest_topic_share"],
+      "within_representation": ["dbcv", "coherence", "topic_diversity", "noise_share"],
+      "note": "DBCV is not comparable across embedding spaces, so it only ranks trials that share a representation."
+    }
+  },
+  "stages": [
+    {
+      "id": 1,
+      "name": "representation",
+      "search": "grid",
+      "space": {
+        "embed_model": [
+          { "name": "BAAI/bge-small-en-v1.5", "prompt": "", "baseline": true }
+        ],
+        "post_processing": ["none", "mean_removal", "mean_removal_plus_top_k"],
+        "top_k_candidates": [1, 2, 3],
+        "top_k_selection": "k with the lowest mean pairwise cosine on the 5k sample"
+      },
+      "fixed_downstream": {
+        "umap": { "n_components": 10, "n_neighbors": 15, "min_dist": 0.0, "metric": "cosine" },
+        "hdbscan": { "min_cluster_size": 100, "min_samples": 10, "cluster_selection_method": "eom" }
+      },
+      "excluded": {
+        "NovaSearch/stella_en_400M_v5": "custom attention code, ROCm risk",
+        "gte-*-v1.5": "custom attention code, ROCm risk",
+        "google/embeddinggemma-300m": "optional, gated"
+      },
+      "n_embedding_passes": 1,
+      "n_trials": 3,
+      "advance": 2
+    },
+    {
+      "id": 2,
+      "name": "umap",
+      "search": "grid",
+      "space": {
+        "n_components": [5, 10, 25, 50],
+        "n_neighbors": [15, 50, 100],
+        "min_dist": [0.0],
+        "metric": ["cosine"]
+      },
+      "n_trials_per_representation": 12,
+      "n_trials": 24,
+      "advance": 3,
+      "advance_by": "best stage 3 result on each projection"
+    },
+    {
+      "id": 3,
+      "name": "hdbscan",
+      "search": "grid",
+      "fallback_search": { "method": "optuna_tpe", "n_trials_per_projection": 40, "use_if": "HDBSCAN on 50 dimensions is too slow" },
+      "input": "cached UMAP projection",
+      "scale": "full corpus",
+      "space": {
+        "min_cluster_size": [25, 50, 100, 200, 400],
+        "min_samples": [1, 5, 15, 50],
+        "cluster_selection_method": ["eom", "leaf"],
+        "cluster_selection_epsilon": [0.0]
+      },
+      "n_trials_per_projection": 40,
+      "n_trials": 120,
+      "advance": 3
+    },
+    {
+      "id": 4,
+      "name": "outlier_reduction",
+      "search": "grid",
+      "refit": false,
+      "space": {
+        "strategy": ["c-tf-idf", "embeddings"],
+        "threshold": [0.0, 0.05, 0.1, 0.2]
+      },
+      "docs_argument": "ctfidf_text",
+      "guard_zero_outliers": true,
+      "update_topics_after": true,
+      "objective": "lower noise_share without lowering coherence",
+      "n_trials_per_finalist": 8,
+      "n_trials": 24
+    },
+    {
+      "id": 5,
+      "name": "finalist_validation",
+      "stability": {
+        "umap_seeds": [0, 1, 2],
+        "metric": "pairwise ARI between seed labelings"
+      },
+      "human_eval": {
+        "task": "word_intrusion",
+        "topics_per_finalist": 30,
+        "finalists": 3
+      },
+      "post_selection_not_tuned": ["vectorizer ngram_range", "representation_model"]
+    }
+  ],
+  "budget": {
+    "total_trials_approx": 170,
+    "full_grid_equivalent": 2400,
+    "estimates": {
+      "stage_1": "about an afternoon for bge-small-en-v1.5 × 3 post-processings",
+      "stage_2": "hours",
+      "stage_3": "minutes per fit at low dimensions, slower at 50",
+      "stage_4_5": "minutes"
+    },
+    "estimate_caveat": "Rough; depends on GPU throughput."
+  }
+}
