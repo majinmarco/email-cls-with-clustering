@@ -45,3 +45,6 @@ notebooks/embeddings_openai_text-embedding-3-small.npy
 # secrets
 .env
 **/.env
+
+# personal docs
+docs

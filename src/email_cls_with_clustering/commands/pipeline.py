@@ -50,6 +50,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip MIME parsing and start from an already expanded CSV.",
     )
     parser.add_argument("--no-progress", action="store_true", help="Hide tqdm bars.")
+    parser.add_argument(
+        "--no-pii-redaction",
+        action="store_true",
+        help="Skip Presidio PII redaction during preprocess.",
+    )
+    parser.add_argument(
+        "--pii-lang",
+        default="en",
+        choices=("en", "es"),
+        help="Presidio/spaCy language for PII detection (default: en).",
+    )
     return parser
 
 
@@ -69,6 +80,8 @@ def main(argv: list[str] | None = None) -> None:
         preprocessed,
         from_expanded=args.from_expanded,
         progress=not args.no_progress,
+        redact_pii=not args.no_pii_redaction,
+        pii_lang=args.pii_lang,
     )
     written = run_topic_model(
         preprocessed,

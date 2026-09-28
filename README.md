@@ -10,7 +10,7 @@ uv sync
 
 ## Preprocess
 
-Reads `notebooks/emails.csv`, parses each message, builds `embed_text` from subject and body (raw case, after stripping forwarded-message banners and `[IMAGE]` placeholders), drops empty rows, builds scrubbed `ctfidf_text`, dedupes on `ctfidf_text`, and writes `notebooks/emails_preprocessed.csv`. `full_message` is an alias of `embed_text`.
+Reads `notebooks/emails.csv`, parses each message, builds `embed_text` from subject and body (raw case, after stripping forwarded-message banners and `[IMAGE]` placeholders), runs Presidio PII redaction on that string (before dedupe and embeddings), drops empty rows, builds scrubbed `ctfidf_text`, removes exact duplicates on `ctfidf_text`, then drops MinHash near-duplicates (5-word shingles, Jaccard ≥ 0.85). Redaction is on by default; pass `--no-pii-redaction` to skip. First run needs spaCy models: `python -m spacy download en_core_web_lg` and, for Spanish, `es_core_news_sm`. Use `--pii-lang en|es` with `preprocess-emails` or `run-email-pipeline`. When `date_parsed` and `From` are present, assigns `thread_id` (normalized subject, participant overlap, 14-day window; `In-Reply-To` when headers exist). Blast guards split self-mail loops, inbound fan-in (many From → one To, e.g. petitions), and outbound fan-out (newsletters / admin alerts). Writes `notebooks/emails_preprocessed.csv`. When `date_parsed` is present, the earliest copy is kept. `full_message` is an alias of `embed_text`.
 
 ```bash
 uv run preprocess-emails

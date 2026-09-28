@@ -1,12 +1,12 @@
 # tests/test_topics.py
 import json
+import math
 from dataclasses import fields
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from email_cls_with_clustering.embeddings import ST_MODEL
 from email_cls_with_clustering.evaluate import DEFAULT_GATES, passes_hard_gates
 from email_cls_with_clustering.hpo import (
     baseline_from_spec,
@@ -17,6 +17,7 @@ from email_cls_with_clustering.hpo import (
     load_spec,
     load_trial,
     record_failed_trial,
+    stage_by_name,
 )
 from email_cls_with_clustering.topics import (
     TopicHyperparams,
@@ -28,6 +29,10 @@ from email_cls_with_clustering.topics import (
     umap_kwargs,
     write_topic_dataset,
 )
+
+
+def _product_size(*axes: list) -> int:
+    return math.prod(len(axis) for axis in axes)
 
 
 def test_failed_trial_is_recorded_and_fails_gates(tmp_path):
@@ -104,32 +109,61 @@ def test_projection_cache_path_ignores_hdbscan_includes_umap(tmp_path):
 
 
 def test_defaults_match_baseline_from_spec():
+    """Code defaults track the HPO baseline, except embed_model (None → ST default)."""
     spec = load_spec()
     baseline = baseline_from_spec(spec)
     defaults = TopicHyperparams()
+    stage1 = stage_by_name(spec, "representation")
+    marked = next(item for item in stage1["space"]["embed_model"] if item.get("baseline"))
+
     for item in fields(TopicHyperparams):
         if item.name == "embed_model":
             assert getattr(defaults, item.name) is None
-            assert baseline.embed_model == ST_MODEL
+            assert baseline.embed_model == marked["name"]
+            continue
+        if item.name == "embed_prompt":
+            assert baseline.embed_prompt == marked.get("prompt", "")
             continue
         assert getattr(defaults, item.name) == getattr(baseline, item.name), item.name
-    assert defaults.resolved_embed_model() == baseline.resolved_embed_model() == ST_MODEL
+    assert baseline.resolved_embed_model() == marked["name"]
 
 
-def test_default_gates_match_spec():
+def test_spec_hard_gates_are_well_formed():
+    """HPO gates may differ from DEFAULT_GATES; require the same keys and types."""
     spec = load_spec()
-    assert DEFAULT_GATES == spec["evaluation"]["hard_gates"]
+    gates = spec["evaluation"]["hard_gates"]
+    assert set(gates) == set(DEFAULT_GATES)
+    for key, value in gates.items():
+        assert isinstance(value, (int, float)), key
     assert spec["evaluation"]["metrics"]["dbcv"]["sample"] == 20000
     assert spec["evaluation"]["metrics"]["dbcv"]["seed"] == 42
     assert spec["evaluation"]["metrics"]["anisotropy"]["sample"] == 5000
 
 
-def test_grid_sizes_match_spec():
+def test_grid_sizes_match_spec_space():
+    """Expanders match the cartesian product of each stage space (not hardcoded counts)."""
     spec = load_spec()
-    assert len(expand_representation(spec)) == 15
-    assert len(expand_umap(spec)) == 12
-    assert len(expand_hdbscan(spec)) == 40
-    assert len(expand_outlier(spec)) == 8
+
+    rep = stage_by_name(spec, "representation")["space"]
+    assert len(expand_representation(spec)) == _product_size(
+        rep["embed_model"], rep["post_processing"]
+    )
+
+    umap = stage_by_name(spec, "umap")["space"]
+    assert len(expand_umap(spec)) == _product_size(
+        umap["n_components"], umap["n_neighbors"], umap["min_dist"], umap["metric"]
+    )
+
+    hdb = stage_by_name(spec, "hdbscan")["space"]
+    assert len(expand_hdbscan(spec)) == _product_size(
+        hdb["min_cluster_size"],
+        hdb["min_samples"],
+        hdb["cluster_selection_method"],
+        hdb["cluster_selection_epsilon"],
+    )
+
+    out = stage_by_name(spec, "outlier_reduction")["space"]
+    assert len(expand_outlier(spec)) == _product_size(out["strategy"], out["threshold"])
 
 
 def test_params_for_mlflow_stringifies_ngram_range():

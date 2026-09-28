@@ -102,7 +102,7 @@ def baseline_from_spec(spec: dict[str, Any]) -> TopicHyperparams:
 
 
 def expand_representation(spec: dict[str, Any]) -> list[dict[str, Any]]:
-    """5 models × 3 post-processings. ``top_k`` is not a grid axis."""
+    """``embed_model`` × ``post_processing``. ``top_k`` is not a grid axis."""
     stage = stage_by_name(spec, "representation")
     items = []
     for model in stage["space"]["embed_model"]:

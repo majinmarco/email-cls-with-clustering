@@ -31,6 +31,28 @@ _TAG = re.compile(r"<[^>]+>")
 _SPACE_RUN = re.compile(r"[^\S\n]+")
 _BLANK_RUN = re.compile(r"\n{3,}")
 
+# Quote / forward cut markers (Outlook, Notes, Gmail, ES clients). Kept as
+# strings only — compiled HTML tidy patterns above must not go into this list.
+_CUT_PATTERNS = (
+    r"^-{2,}\s*Original Message\s*-{2,}",
+    r"^-{5,}\s*Forwarded by",
+    r"^\s*From:\s.+\n\s*(Sent|Date):\s",
+    r"^.+ on \d{2}/\d{2}/\d{2,4} \d{1,2}:\d{2}(:\d{2})? ?(AM|PM)?",
+    r"^On .+wrote:$",
+    r"^El .+escribió:$",
+    r"^-{2,}\s*Mensaje original\s*-{2,}",
+    r"^De:\s.+\n\s*(Enviado|Fecha):\s",
+)
+_CUT_RE = re.compile("|".join(_CUT_PATTERNS), re.MULTILINE | re.IGNORECASE)
+_DISCLAIMER_RE = re.compile(
+    r"(this (e-?mail|message) (and any attachments )?(is|may be) (confidential|privileged).*|"
+    r"este mensaje (es|puede ser) confidencial.*|\*{5,}.*)",
+    re.IGNORECASE | re.DOTALL,
+)
+_SIG_RE = re.compile(
+    r"\n(--\s*\n|Thanks,?\s*\n|Regards,?\s*\n|Saludos,?\s*\n).{0,300}$",
+    re.IGNORECASE | re.DOTALL,
+)
 
 # Header spellings that show up in this corpus. Any other header is kept
 # under the name the message actually uses.
@@ -167,6 +189,9 @@ def clean_body(text: str, sender: str) -> tuple[str, str]:
         return "", ""
 
     try:
+        # Heuristic quote/disclaimer strip before Talon (regex is cheap; Talon is not).
+        text = strip_email(text)
+
         signature_mod, quotations = _talon()
         reply = quotations.extract_from(text, "text/plain")
         if not isinstance(reply, str) or not reply.strip():
@@ -302,6 +327,24 @@ def _html_to_text(html: str) -> str:
     if isinstance(converted, str) and converted.strip():
         return _tidy_lines(converted)
     return _html_fallback(html)
+
+def strip_email(body: str) -> str:
+    """Cut quoted replies, `>` lines, disclaimers, and trailing soft signatures.
+
+    Runs on raw body text (newlines preserved) inside ``clean_body``, before
+    Talon. This is MIME-pipeline cleaning, not topic-model scrubbing — keep it
+    here rather than in ``text_clean``.
+    """
+    if not isinstance(body, str) or not body:
+        return ""
+    match = _CUT_RE.search(body)
+    new = body[: match.start()] if match else body
+    new = "\n".join(
+        line for line in new.splitlines() if not line.lstrip().startswith(">")
+    )
+    new = _DISCLAIMER_RE.sub("", new)
+    new = _SIG_RE.sub("\n", new)
+    return _BLANK_RUN.sub("\n\n", new).strip()
 
 
 def _html_fallback(html: str) -> str:

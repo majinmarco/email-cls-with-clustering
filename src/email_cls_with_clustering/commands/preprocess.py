@@ -20,6 +20,8 @@ def run_preprocess(
     *,
     from_expanded: bool,
     progress: bool = True,
+    redact_pii: bool = True,
+    pii_lang: str = "en",
 ) -> Path:
     """Write a deduped, cleaned frame ready for topic modeling."""
     frame = pd.read_csv(source)
@@ -27,7 +29,12 @@ def run_preprocess(
     if not from_expanded:
         frame = expand_emails(frame, progress=progress)
         print(f"expanded to {len(frame)} rows")
-    cleaned = prepare_messages(frame, progress=progress)
+    cleaned = prepare_messages(
+        frame,
+        progress=progress,
+        redact_pii_enabled=redact_pii,
+        pii_lang=pii_lang,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     cleaned.to_csv(output, index=False)
     print(f"wrote {len(cleaned)} rows → {output}")
@@ -61,6 +68,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Hide tqdm bars.",
     )
+    parser.add_argument(
+        "--no-pii-redaction",
+        action="store_true",
+        help="Skip Presidio PII redaction before embeddings/dedupe.",
+    )
+    parser.add_argument(
+        "--pii-lang",
+        default="en",
+        choices=("en", "es"),
+        help="Presidio/spaCy language for PII detection (default: en).",
+    )
     return parser
 
 
@@ -77,4 +95,6 @@ def main(argv: list[str] | None = None) -> None:
         output,
         from_expanded=args.from_expanded,
         progress=not args.no_progress,
+        redact_pii=not args.no_pii_redaction,
+        pii_lang=args.pii_lang,
     )
