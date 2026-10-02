@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 import re
@@ -21,6 +22,8 @@ from email_cls_with_clustering.embeddings import (
 )
 from email_cls_with_clustering.evaluate import (
     DEFAULT_GATES,
+    METRIC_ALIASES,
+    gate_violation,
     passes_hard_gates,
     score_run,
     select_advancing,
@@ -30,9 +33,14 @@ from email_cls_with_clustering.representation import prepare_representation
 from email_cls_with_clustering.topics import (
     TopicHyperparams,
     apply_topic_labels,
+    default_stop_words,
     embeddings_for_metrics,
+    make_vectorizer,
+    vectorizer_id,
+    extra_stop_words_from_vectorizer,
     fit_hdbscan_on_projection,
     hdbscan_kwargs,
+    join_by_thread,
     load_or_project,
     params_for_json,
     params_for_mlflow,
@@ -40,6 +48,7 @@ from email_cls_with_clustering.topics import (
     projection_cache_path,
     reduced_labels,
     umap_kwargs,
+    vectorizer_stop_words,
     write_topic_dataset,
 )
 from email_cls_with_clustering.tracking import setup_tracking
@@ -99,6 +108,12 @@ def baseline_from_spec(spec: dict[str, Any]) -> TopicHyperparams:
         post_processing="none",
         top_k=None,
     )
+
+
+def stop_words_from_spec(spec: dict[str, Any]) -> list[str]:
+    """SpaCy EN+ES plus email / PII / calendar extras from the HPO prerequisites."""
+    extras = extra_stop_words_from_vectorizer(spec["prerequisites"]["vectorizer"])
+    return vectorizer_stop_words(extras)
 
 
 def expand_representation(spec: dict[str, Any]) -> list[dict[str, Any]]:
@@ -217,6 +232,21 @@ def load_trial(path: Path) -> dict[str, Any] | None:
     return json.loads(path.read_text())
 
 
+def _same_corpus(
+    existing: dict[str, Any] | None,
+    *,
+    fingerprint: str,
+    vectorizer_key: str,
+) -> bool:
+    """True when a saved trial used this text and this c-TF-IDF vectorizer."""
+    if not existing:
+        return False
+    return (
+        existing.get("fingerprint") == fingerprint
+        and existing.get("vectorizer_id") == vectorizer_key
+    )
+
+
 def write_trial(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(record, indent=2, default=str) + "\n")
@@ -331,11 +361,15 @@ def _log_trial_mlflow(
     *,
     run_name: str,
     extra: dict[str, Any] | None = None,
+    gates: dict[str, float] | None = None,
 ) -> None:
     try:
         with mlflow.start_run(run_name=run_name, nested=True):
             mlflow.log_params(params_for_mlflow(params, extra))
-            mlflow.log_param("passed_gates", passes_hard_gates(metrics, DEFAULT_GATES))
+            mlflow.log_param(
+                "passed_gates",
+                passes_hard_gates(metrics, gates if gates is not None else DEFAULT_GATES),
+            )
             finite = {k: v for k, v in metrics.items() if np.isfinite(v)}
             if finite:
                 mlflow.log_metrics(finite)
@@ -350,22 +384,20 @@ def _fit_bertopic_with_embeddings(
     *,
     cache_dir: Path,
     fingerprint: str,
+    stop_words: list[str] | None = None,
 ):
     """Fit BERTopic with a live UMAP and save the projection npy."""
     from bertopic import BERTopic
     from hdbscan import HDBSCAN
-    from sklearn.feature_extraction.text import CountVectorizer
-    from spacy.lang.en.stop_words import STOP_WORDS as EN_STOP
-    from spacy.lang.es.stop_words import STOP_WORDS as ES_STOP
     from umap import UMAP
 
     topic_model = BERTopic(
         embedding_model=None,
         umap_model=UMAP(**umap_kwargs(params)),
         hdbscan_model=HDBSCAN(**hdbscan_kwargs(params)),
-        vectorizer_model=CountVectorizer(
-            stop_words=list(EN_STOP | ES_STOP),
-            ngram_range=params.ngram_range,
+        vectorizer_model=make_vectorizer(
+            stop_words if stop_words is not None else default_stop_words(),
+            params.ngram_range,
         ),
         calculate_probabilities=params.calculate_probabilities,
         verbose=False,
@@ -409,6 +441,7 @@ def run_stage1(
     """Representation screen: 15 trials, advance 2."""
     stage = stage_by_name(spec, "representation")
     baseline = baseline_from_spec(spec)
+    stops = stop_words_from_spec(spec)
     docs = frame["ctfidf_text"].fillna("").astype(str).tolist()
     embed_texts = frame["embed_text"].fillna("").astype(str).tolist()
     ground_truth = (
@@ -451,13 +484,19 @@ def run_stage1(
         rep_id = representation_id(params)
         trial_id = f"rep__{rep_id}"
         path = trial_path(1, trial_id, root)
+        fingerprint = texts_fingerprint(apply_prompt(embed_texts, params.embed_prompt))
+        vec_id = vectorizer_id(stops, params.ngram_range)
         existing = load_trial(path)
-        if existing is not None:
+        if _same_corpus(existing, fingerprint=fingerprint, vectorizer_key=vec_id):
             records.append(existing)
             continue
-        fingerprint = texts_fingerprint(apply_prompt(embed_texts, params.embed_prompt))
         topic_model, topics, probs, proj_path = _fit_bertopic_with_embeddings(
-            docs, processed, params, cache_dir=cache_dir, fingerprint=fingerprint
+            docs,
+            processed,
+            params,
+            cache_dir=cache_dir,
+            fingerprint=fingerprint,
+            stop_words=stops,
         )
         metrics = _score(
             topic_model,
@@ -477,9 +516,10 @@ def run_stage1(
             "embedding_cache": str(emb_path),
             "projection_cache": str(proj_path),
             "fingerprint": fingerprint,
+            "vectorizer_id": vec_id,
         }
         write_trial(path, record)
-        _log_trial_mlflow(params, metrics, run_name=trial_id)
+        _log_trial_mlflow(params, metrics, run_name=trial_id, gates=gates)
         records.append(record)
 
     advanced, quota_met = select_advancing(records, order, stage["advance"], gates)
@@ -510,6 +550,7 @@ def run_stage2(
     """UMAP screen on advanced representations: 12 settings each, advance 3."""
     stage = stage_by_name(spec, "umap")
     baseline = baseline_from_spec(spec)
+    stops = stop_words_from_spec(spec)
     docs = frame["ctfidf_text"].fillna("").astype(str).tolist()
     embed_texts = frame["embed_text"].fillna("").astype(str).tolist()
     ground_truth = (
@@ -548,6 +589,7 @@ def run_stage2(
         fingerprint = texts_fingerprint(
             apply_prompt(embed_texts, rep_params.embed_prompt)
         )
+        vec_id = vectorizer_id(stops, rep_params.ngram_range)
         for umap_item in umap_grid:
             params = replace(
                 rep_params,
@@ -568,13 +610,17 @@ def run_stage2(
             )
             path = trial_path(2, trial_id, root)
             existing = load_trial(path)
-            if existing is not None:
+            if _same_corpus(existing, fingerprint=fingerprint, vectorizer_key=vec_id):
                 records.append(existing)
                 continue
             proj_path = projection_cache_path(cache_dir, params, fingerprint)
             projection = load_or_project(processed, params, proj_path)
             topic_model, topics, probs = fit_hdbscan_on_projection(
-                docs, projection, params, calculate_probabilities=False
+                docs,
+                projection,
+                params,
+                calculate_probabilities=False,
+                stop_words=stops,
             )
             metrics = _score(
                 topic_model,
@@ -594,9 +640,10 @@ def run_stage2(
                 "embedding_cache": str(emb_path),
                 "projection_cache": str(proj_path),
                 "fingerprint": fingerprint,
+                "vectorizer_id": vec_id,
             }
             write_trial(path, record)
-            _log_trial_mlflow(params, metrics, run_name=trial_id)
+            _log_trial_mlflow(params, metrics, run_name=trial_id, gates=gates)
             records.append(record)
 
     advanced, quota_met = select_advancing(records, order, stage["advance"], gates)
@@ -614,207 +661,279 @@ def run_stage2(
     return advanced
 
 
-def _hdbscan_objective(metrics: dict[str, float], gates: dict[str, float]) -> float:
-    if not passes_hard_gates(metrics, gates):
-        return 1e6
-    required = ("dbcv", "coherence_c_npmi", "topic_diversity", "noise_share")
-    if any(metrics.get(name) is None or not np.isfinite(metrics.get(name, float("nan")))
-           for name in required):
-        return 1e6
-    return (
-        -1000.0 * metrics["dbcv"]
-        - 100.0 * metrics["coherence_c_npmi"]
-        - 10.0 * metrics["topic_diversity"]
-        + metrics["noise_share"]
+STAGE3_METRICS_VERSION = 2
+"""Bump when a stage-3 metric changes meaning. 2: DBCV core distances in log space."""
+
+DEFAULT_HDBSCAN_OBJECTIVE = {
+    "coherence_c_npmi": 1.0,
+    "topic_diversity": 0.5,
+    "noise_share": -0.5,
+}
+"""Optuna stage-3 weights. DBCV is off by default; add ``"dbcv": w`` to use it."""
+
+
+def hdbscan_objective(
+    metrics: dict[str, float],
+    gates: dict[str, float],
+    weights: dict[str, float] | None = None,
+    gate_penalty: float = 1.0,
+) -> float:
+    """Score to maximize: weighted sum of metrics, graded penalty below the gates.
+
+    Weighted metrics are assumed to lie in [-1, 1], so a passing trial scores at
+    least ``-sum(|w|)``. Failing trials score below ``-sum(|w|) - 1`` and fall
+    further the more they miss, so TPE still learns which way the gates are.
+    """
+    weights = weights if weights is not None else DEFAULT_HDBSCAN_OBJECTIVE
+    floor = -sum(abs(w) for w in weights.values()) - 1.0
+    values = {name: metrics.get(name) for name in weights}
+    missing = sum(
+        1 for value in values.values() if value is None or not np.isfinite(value)
     )
+    violation = gate_violation(metrics, gates)
+    if violation > 0 or missing:
+        return floor - gate_penalty * (violation + missing)
+    return float(sum(w * values[name] for name, w in weights.items()))
+
+
+def optuna_hdbscan_config(spec: dict[str, Any]) -> dict[str, Any]:
+    """Stage-3 Optuna settings. Without ``fallback_search.space`` it reuses the grid."""
+    stage = stage_by_name(spec, "hdbscan")
+    fallback = stage.get("fallback_search", {})
+    space = fallback.get("space") or {
+        name: {"type": "categorical", "choices": list(values)}
+        for name, values in stage["space"].items()
+    }
+    weights = {
+        METRIC_ALIASES.get(name, name): float(w)
+        for name, w in fallback.get("objective", DEFAULT_HDBSCAN_OBJECTIVE).items()
+    }
+    return {
+        "n_trials": int(fallback.get("n_trials_per_projection", stage["n_trials_per_projection"])),
+        "seed": int(fallback.get("seed", 42)),
+        "space": space,
+        "objective": weights,
+        "gate_penalty": float(fallback.get("gate_penalty", 1.0)),
+    }
+
+
+def _suggest(trial, name: str, dist: dict[str, Any]):
+    kind = dist["type"]
+    if kind == "categorical":
+        return trial.suggest_categorical(name, dist["choices"])
+    extra = {"log": dist["log"]} if "log" in dist else {}
+    if "step" in dist:
+        extra["step"] = dist["step"]
+    if kind == "int":
+        return trial.suggest_int(name, int(dist["low"]), int(dist["high"]), **extra)
+    if kind == "float":
+        return trial.suggest_float(name, float(dist["low"]), float(dist["high"]), **extra)
+    raise ValueError(f"Unknown distribution type for {name}: {kind}")
+
+
+def suggest_hdbscan(trial, space: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Sample one HDBSCAN setting. ``min_samples`` is capped at ``min_cluster_size``."""
+    item = {name: _suggest(trial, name, dist) for name, dist in space.items()}
+    item["min_cluster_size"] = int(item["min_cluster_size"])
+    item["min_samples"] = min(int(item["min_samples"]), item["min_cluster_size"])
+    item["cluster_selection_epsilon"] = round(float(item["cluster_selection_epsilon"]), 4)
+    return item
+
+
+def _stage3_trial_id(params: TopicHyperparams) -> str:
+    return (
+        f"{representation_id(params)}__umap_nc{params.n_components}"
+        f"_nn{params.n_neighbors}"
+        f"__mcs{params.min_cluster_size}_ms{params.min_samples}"
+        f"_{params.cluster_selection_method}_eps{params.cluster_selection_epsilon}"
+    )
+
+
+def _run_stage3_trial(
+    item: dict[str, Any],
+    *,
+    docs: list[str],
+    processed: np.ndarray,
+    projection: np.ndarray,
+    proj_path: Path,
+    emb_path: Path,
+    fingerprint: str,
+    base_params: TopicHyperparams,
+    ground_truth,
+    gates: dict[str, float],
+    root: Path | None,
+    stop_words: list[str] | None,
+    vec_id: str,
+) -> dict[str, Any]:
+    """Fit and score one HDBSCAN setting, or reuse a saved trial for the same corpus."""
+    params = replace(
+        base_params,
+        min_cluster_size=item["min_cluster_size"],
+        min_samples=item["min_samples"],
+        cluster_selection_method=item["cluster_selection_method"],
+        cluster_selection_epsilon=item["cluster_selection_epsilon"],
+        calculate_probabilities=False,
+    )
+    trial_id = _stage3_trial_id(params)
+    path = trial_path(3, trial_id, root)
+    existing = load_trial(path)
+    if (
+        _same_corpus(existing, fingerprint=fingerprint, vectorizer_key=vec_id)
+        and existing.get("metrics_version") == STAGE3_METRICS_VERSION
+    ):
+        return existing
+    cache_info = {
+        "embedding_cache": str(emb_path),
+        "projection_cache": str(proj_path),
+        "fingerprint": fingerprint,
+        "vectorizer_id": vec_id,
+        "metrics_version": STAGE3_METRICS_VERSION,
+    }
+    try:
+        topic_model, topics, probs = fit_hdbscan_on_projection(
+            docs,
+            projection,
+            params,
+            calculate_probabilities=False,
+            stop_words=stop_words,
+        )
+        metrics = _score(
+            topic_model,
+            topics,
+            docs=docs,
+            embeddings=embeddings_for_metrics(processed, projection),
+            ground_truth=ground_truth,
+            include_dbcv=True,
+        )
+    except Exception as exc:
+        return record_failed_trial(
+            path,
+            trial_id=trial_id,
+            stage=3,
+            representation_id=representation_id(params),
+            params=params_for_json(params),
+            exc=exc,
+            extra=cache_info,
+        )
+    record = {
+        "trial_id": trial_id,
+        "stage": 3,
+        "representation_id": representation_id(params),
+        "params": params_for_json(params),
+        "metrics": metrics,
+        "passed_gates": passes_hard_gates(metrics, gates),
+        **cache_info,
+    }
+    write_trial(path, record)
+    _log_trial_mlflow(params, metrics, run_name=trial_id, gates=gates)
+    return record
 
 
 def _run_hdbscan_grid_on_projection(
     *,
     spec: dict[str, Any],
-    docs: list[str],
-    processed: np.ndarray,
-    projection: np.ndarray,
-    proj_path: Path,
-    emb_path: Path,
-    fingerprint: str,
-    base_params: TopicHyperparams,
-    ground_truth,
-    gates: dict[str, float],
-    root: Path | None,
+    stop_words: list[str] | None = None,
+    **trial_kwargs: Any,
 ) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for item in expand_hdbscan(spec):
-        params = replace(
-            base_params,
-            min_cluster_size=item["min_cluster_size"],
-            min_samples=item["min_samples"],
-            cluster_selection_method=item["cluster_selection_method"],
-            cluster_selection_epsilon=item["cluster_selection_epsilon"],
-            calculate_probabilities=False,
-        )
-        trial_id = (
-            f"{representation_id(params)}__umap_nc{params.n_components}"
-            f"_nn{params.n_neighbors}"
-            f"__mcs{params.min_cluster_size}_ms{params.min_samples}"
-            f"_{params.cluster_selection_method}_eps{params.cluster_selection_epsilon}"
-        )
-        path = trial_path(3, trial_id, root)
-        existing = load_trial(path)
-        if existing is not None:
-            records.append(existing)
-            continue
-        try:
-            topic_model, topics, probs = fit_hdbscan_on_projection(
-                docs, projection, params, calculate_probabilities=False
-            )
-            metrics = _score(
-                topic_model,
-                topics,
-                docs=docs,
-                embeddings=embeddings_for_metrics(processed, projection),
-                ground_truth=ground_truth,
-                include_dbcv=True,
-            )
-        except Exception as exc:
-            records.append(
-                record_failed_trial(
-                    path,
-                    trial_id=trial_id,
-                    stage=3,
-                    representation_id=representation_id(params),
-                    params=params_for_json(params),
-                    exc=exc,
-                    extra={
-                        "embedding_cache": str(emb_path),
-                        "projection_cache": str(proj_path),
-                        "fingerprint": fingerprint,
-                    },
-                )
-            )
-            continue
-        record = {
-            "trial_id": trial_id,
-            "stage": 3,
-            "representation_id": representation_id(params),
-            "params": params_for_json(params),
-            "metrics": metrics,
-            "passed_gates": passes_hard_gates(metrics, gates),
-            "embedding_cache": str(emb_path),
-            "projection_cache": str(proj_path),
-            "fingerprint": fingerprint,
-        }
-        write_trial(path, record)
-        _log_trial_mlflow(params, metrics, run_name=trial_id)
-        records.append(record)
-    return records
+    stops = stop_words if stop_words is not None else default_stop_words()
+    vec_id = vectorizer_id(stops, trial_kwargs["base_params"].ngram_range)
+    return [
+        _run_stage3_trial(item, stop_words=stop_words, vec_id=vec_id, **trial_kwargs)
+        for item in expand_hdbscan(spec)
+    ]
+
+
+def _optuna_study_name(
+    base_params: TopicHyperparams,
+    *,
+    fingerprint: str,
+    vec_id: str,
+    config: dict[str, Any],
+    gates: dict[str, float],
+) -> str:
+    """One study per projection and search setup. Changing the space starts afresh."""
+    material = {
+        "fingerprint": fingerprint,
+        "vectorizer_id": vec_id,
+        "space": config["space"],
+        "objective": config["objective"],
+        "gate_penalty": config["gate_penalty"],
+        "gates": gates,
+        "seed": config["seed"],
+        "metrics_version": STAGE3_METRICS_VERSION,
+    }
+    digest = hashlib.blake2b(
+        json.dumps(material, sort_keys=True).encode("utf-8"), digest_size=6
+    ).hexdigest()
+    return (
+        f"stage3__{representation_id(base_params)}__umap_nc{base_params.n_components}"
+        f"_nn{base_params.n_neighbors}__{digest}"
+    )
 
 
 def _run_hdbscan_optuna_on_projection(
     *,
     spec: dict[str, Any],
-    docs: list[str],
-    processed: np.ndarray,
-    projection: np.ndarray,
-    proj_path: Path,
-    emb_path: Path,
-    fingerprint: str,
-    base_params: TopicHyperparams,
-    ground_truth,
     gates: dict[str, float],
     root: Path | None,
+    stop_words: list[str] | None = None,
+    **trial_kwargs: Any,
 ) -> list[dict[str, Any]]:
+    """TPE search over ``fallback_search.space``, stored in ``stage3/optuna.db``.
+
+    Re-running continues the same study: finished trials count toward
+    ``n_trials_per_projection`` and their saved records are returned.
+    """
     import optuna
 
-    stage = stage_by_name(spec, "hdbscan")
-    space = stage["space"]
-    n_trials = stage["fallback_search"]["n_trials_per_projection"]
-    records: list[dict[str, Any]] = []
+    config = optuna_hdbscan_config(spec)
+    base_params = trial_kwargs["base_params"]
+    stops = stop_words if stop_words is not None else default_stop_words()
+    vec_id = vectorizer_id(stops, base_params.ngram_range)
+    storage = f"sqlite:///{stage_dir(3, root) / 'optuna.db'}"
+    study = optuna.create_study(
+        study_name=_optuna_study_name(
+            base_params,
+            fingerprint=trial_kwargs["fingerprint"],
+            vec_id=vec_id,
+            config=config,
+            gates=gates,
+        ),
+        storage=storage,
+        load_if_exists=True,
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=config["seed"]),
+    )
+    records: dict[str, dict[str, Any]] = {}
+    for done in study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.COMPLETE,)):
+        saved = load_trial(trial_path(3, done.user_attrs.get("trial_id", ""), root))
+        if saved is not None:
+            records[saved["trial_id"]] = saved
 
     def objective(trial: optuna.Trial) -> float:
-        item = {
-            "min_cluster_size": trial.suggest_categorical(
-                "min_cluster_size", space["min_cluster_size"]
-            ),
-            "min_samples": trial.suggest_categorical("min_samples", space["min_samples"]),
-            "cluster_selection_method": trial.suggest_categorical(
-                "cluster_selection_method", space["cluster_selection_method"]
-            ),
-            "cluster_selection_epsilon": trial.suggest_categorical(
-                "cluster_selection_epsilon", space["cluster_selection_epsilon"]
-            ),
-        }
-        params = replace(
-            base_params,
-            min_cluster_size=item["min_cluster_size"],
-            min_samples=item["min_samples"],
-            cluster_selection_method=item["cluster_selection_method"],
-            cluster_selection_epsilon=item["cluster_selection_epsilon"],
-            calculate_probabilities=False,
+        item = suggest_hdbscan(trial, config["space"])
+        record = _run_stage3_trial(
+            item,
+            gates=gates,
+            root=root,
+            stop_words=stop_words,
+            vec_id=vec_id,
+            **trial_kwargs,
         )
-        trial_id = (
-            f"{representation_id(params)}__umap_nc{params.n_components}"
-            f"_nn{params.n_neighbors}__optuna{trial.number}"
+        trial.set_user_attr("trial_id", record["trial_id"])
+        records[record["trial_id"]] = record
+        return hdbscan_objective(
+            record.get("metrics", {}),
+            gates,
+            config["objective"],
+            config["gate_penalty"],
         )
-        path = trial_path(3, trial_id, root)
-        existing = load_trial(path)
-        if existing is not None:
-            records.append(existing)
-            return _hdbscan_objective(existing["metrics"], gates)
-        try:
-            topic_model, topics, probs = fit_hdbscan_on_projection(
-                docs, projection, params, calculate_probabilities=False
-            )
-            metrics = _score(
-                topic_model,
-                topics,
-                docs=docs,
-                embeddings=embeddings_for_metrics(processed, projection),
-                ground_truth=ground_truth,
-                include_dbcv=True,
-            )
-        except Exception as exc:
-            record_failed_trial(
-                path,
-                trial_id=trial_id,
-                stage=3,
-                representation_id=representation_id(params),
-                params=params_for_json(params),
-                exc=exc,
-                extra={
-                    "embedding_cache": str(emb_path),
-                    "projection_cache": str(proj_path),
-                    "fingerprint": fingerprint,
-                    "optuna_number": trial.number,
-                },
-            )
-            failed = load_trial(path)
-            if failed is not None:
-                records.append(failed)
-            return 1e6
-        record = {
-            "trial_id": trial_id,
-            "stage": 3,
-            "representation_id": representation_id(params),
-            "params": params_for_json(params),
-            "metrics": metrics,
-            "passed_gates": passes_hard_gates(metrics, gates),
-            "embedding_cache": str(emb_path),
-            "projection_cache": str(proj_path),
-            "fingerprint": fingerprint,
-            "optuna_number": trial.number,
-        }
-        write_trial(path, record)
-        _log_trial_mlflow(params, metrics, run_name=trial_id)
-        records.append(record)
-        return _hdbscan_objective(metrics, gates)
 
-    study = optuna.create_study(
-        direction="minimize",
-        sampler=optuna.samplers.TPESampler(seed=42),
-    )
-    study.optimize(objective, n_trials=n_trials)
-    return records
+    finished = len(study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.COMPLETE,)))
+    remaining = config["n_trials"] - finished
+    if remaining > 0:
+        study.optimize(objective, n_trials=remaining)
+    return list(records.values())
 
 
 def run_stage3(
@@ -829,6 +948,7 @@ def run_stage3(
 ) -> list[dict[str, Any]]:
     """HDBSCAN search on cached projections."""
     stage = stage_by_name(spec, "hdbscan")
+    stops = stop_words_from_spec(spec)
     docs = frame["ctfidf_text"].fillna("").astype(str).tolist()
     embed_texts = frame["embed_text"].fillna("").astype(str).tolist()
     ground_truth = (
@@ -882,6 +1002,7 @@ def run_stage3(
                 ground_truth=ground_truth,
                 gates=gates,
                 root=root,
+                stop_words=stops,
             )
         else:
             batch = _run_hdbscan_grid_on_projection(
@@ -896,6 +1017,7 @@ def run_stage3(
                 ground_truth=ground_truth,
                 gates=gates,
                 root=root,
+                stop_words=stops,
             )
         records.extend(batch)
 
@@ -932,6 +1054,7 @@ def run_stage4(
 ) -> list[dict[str, Any]]:
     """Outlier reduction on stage-3 finalists. Writes full CSV/pkl per winner."""
     stage = stage_by_name(spec, "outlier_reduction")
+    stops = stop_words_from_spec(spec)
     docs = frame["ctfidf_text"].fillna("").astype(str).tolist()
     embed_texts = frame["embed_text"].fillna("").astype(str).tolist()
     ground_truth = (
@@ -969,6 +1092,7 @@ def run_stage4(
         fingerprint = finalist.get("fingerprint") or texts_fingerprint(
             apply_prompt(embed_texts, base_params.embed_prompt)
         )
+        vec_id = vectorizer_id(stops, base_params.ngram_range)
         proj_path = Path(
             finalist.get("projection_cache")
             or projection_cache_path(cache_dir, base_params, fingerprint)
@@ -976,7 +1100,11 @@ def run_stage4(
         projection = load_or_project(processed, base_params, proj_path)
         try:
             topic_model, topics, probs = fit_hdbscan_on_projection(
-                docs, projection, base_params, calculate_probabilities=False
+                docs,
+                projection,
+                base_params,
+                calculate_probabilities=False,
+                stop_words=stops,
             )
             baseline_metrics = _score(
                 topic_model,
@@ -1027,14 +1155,19 @@ def run_stage4(
                     "accepted": False,
                     "strategy": item["strategy"],
                     "threshold": item["threshold"],
+                    "fingerprint": fingerprint,
+                    "vectorizer_id": vec_id,
                 }
                 path = trial_path(4, trial_id, root)
-                if load_trial(path) is None:
+                if not _same_corpus(
+                    load_trial(path), fingerprint=fingerprint, vectorizer_key=vec_id
+                ):
                     write_trial(path, record)
                     _log_trial_mlflow(
                         base_params,
                         baseline_metrics,
                         run_name=trial_id,
+                        gates=gates,
                         extra={
                             "outlier_strategy": item["strategy"],
                             "outlier_threshold": item["threshold"],
@@ -1052,7 +1185,9 @@ def run_stage4(
                     f"__thr{item['threshold']}"
                 )
                 path = trial_path(4, trial_id, root)
-                if load_trial(path) is not None:
+                if _same_corpus(
+                    load_trial(path), fingerprint=fingerprint, vectorizer_key=vec_id
+                ):
                     reductions.append((item, None))
                     continue
                 emb_arg = projection if item["strategy"] == "embeddings" else None
@@ -1087,7 +1222,7 @@ def run_stage4(
                 )
                 path = trial_path(4, trial_id, root)
                 existing = load_trial(path)
-                if existing is not None:
+                if _same_corpus(existing, fingerprint=fingerprint, vectorizer_key=vec_id):
                     records.append(existing)
                     if existing.get("accepted"):
                         accepted.append(existing)
@@ -1146,12 +1281,15 @@ def run_stage4(
                     "strategy": item["strategy"],
                     "threshold": item["threshold"],
                     "labels": labels.tolist(),
+                    "fingerprint": fingerprint,
+                    "vectorizer_id": vec_id,
                 }
                 write_trial(path, record)
                 _log_trial_mlflow(
                     base_params,
                     metrics,
                     run_name=trial_id,
+                    gates=gates,
                     extra={
                         "outlier_strategy": item["strategy"],
                         "outlier_threshold": item["threshold"],
@@ -1221,19 +1359,24 @@ def run_hpo(
     hdbscan_search: str = "grid",
     output: Path | None = None,
     env_file: Path | None = None,
+    join_threads: bool = False,
 ) -> None:
     """Run stages 1–4 of the HPO spec (stage 5 is not executed)."""
     spec = load_spec(spec_path)
     data_dir = notebooks_dir()
-    source = input_path or (data_dir / "emails_preprocessed.csv")
+    source = input_path or (data_dir / "emails_preprocessed_no_spam.csv")
     env = env_file or (data_dir / ".env")
     frame = pd.read_csv(source)
     print(f"loaded {len(frame)} rows from {source}")
+    if join_threads:
+        frame = join_by_thread(frame)
+        print(f"joined into {len(frame)} thread documents")
     setup_tracking()
     with mlflow.start_run(run_name=spec["job"]):
         mlflow.log_param("from_stage", from_stage)
         mlflow.log_param("hdbscan_search", hdbscan_search)
         mlflow.log_param("spec", str(spec_path or DEFAULT_SPEC))
+        mlflow.log_param("join_threads", join_threads)
 
         advanced1: list[dict[str, Any]] | None = None
         advanced2: list[dict[str, Any]] | None = None

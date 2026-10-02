@@ -9,6 +9,7 @@ import pytest
 
 from email_cls_with_clustering.evaluate import DEFAULT_GATES, passes_hard_gates
 from email_cls_with_clustering.hpo import (
+    _same_corpus,
     baseline_from_spec,
     expand_hdbscan,
     expand_outlier,
@@ -21,12 +22,16 @@ from email_cls_with_clustering.hpo import (
 )
 from email_cls_with_clustering.topics import (
     TopicHyperparams,
+    default_stop_words,
     embeddings_for_metrics,
+    extra_stop_words_from_vectorizer,
     hdbscan_kwargs,
+    make_vectorizer,
     params_for_mlflow,
     params_from_mapping,
     projection_cache_path,
     umap_kwargs,
+    vectorizer_id,
     write_topic_dataset,
 )
 
@@ -67,7 +72,7 @@ def test_probabilities_go_to_npy_not_csv(tmp_path):
     assert reloaded.shape == (2, 2)
     assert reloaded.dtype.kind == "f"   # numbers, not strings
     sidecar = json.loads(out.with_suffix(".json").read_text())
-    assert sidecar["hyperparameters"]["ngram_range"] == [1, 1]
+    assert sidecar["hyperparameters"]["ngram_range"] == [1, 2]
 
 
 def test_umap_and_hdbscan_kwargs_match_baseline_defaults():
@@ -168,12 +173,44 @@ def test_grid_sizes_match_spec_space():
 
 def test_params_for_mlflow_stringifies_ngram_range():
     logged = params_for_mlflow(TopicHyperparams())
-    assert logged["ngram_range"] == "[1, 1]"
+    assert logged["ngram_range"] == "[1, 2]"
     assert logged["embed_model"] == "null"
     assert logged["min_samples"] == 10
     assert logged["n_jobs"] == -1
     assert logged["post_processing"] == "none"
     assert logged["calculate_probabilities"] is True
+
+
+def test_vectorizer_drops_digits_and_keeps_bigrams():
+    vec = make_vectorizer(["fw"], (1, 2))
+    vec.fit(["price cap 42401 fw meeting"])
+    vocab = set(vec.get_feature_names_out())
+    assert "42401" not in vocab
+    assert "fw" not in vocab
+    assert "price cap" in vocab
+    assert "meeting" in vocab
+
+
+def test_stop_list_is_english_and_matches_scrubbed_pii():
+    extras = extra_stop_words_from_vectorizer({
+        "pii_entities": ["PHONE_NUMBER", "US_SSN"],
+        "email_stop_words": ["fw"],
+    })
+    assert "phonenumber" in extras
+    assert "usssn" in extras
+    stops = set(default_stop_words())
+    assert "fw" in stops
+    assert "deal" not in stops
+    assert "agreement" not in stops
+    assert "final" not in stops
+    assert "son" not in stops
+
+
+def test_saved_trial_from_another_vectorizer_is_not_reused():
+    record = {"fingerprint": "abc", "vectorizer_id": "old"}
+    assert _same_corpus(record, fingerprint="abc", vectorizer_key="old")
+    assert not _same_corpus(record, fingerprint="threads", vectorizer_key="old")
+    assert not _same_corpus(record, fingerprint="abc", vectorizer_key=vectorizer_id(["fw"], (1, 2)))
 
 
 def test_params_for_mlflow_includes_outlier_reduction_settings():

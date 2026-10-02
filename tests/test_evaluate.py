@@ -123,7 +123,7 @@ def test_params_for_mlflow_records_resolved_embed_model():
     assert logged["embed_model_resolved"] == params.resolved_embed_model()
     assert logged["calculate_probabilities"] is True
     assert logged["normalize_embeddings"] is True
-    assert logged["stop_words"] == "EN_STOP | ES_STOP"
+    assert logged["stop_words"] == "EN_STOP | email | pii | calendar"
 
 
 def test_score_run_ground_truth_logs_ami_ari():
@@ -298,6 +298,42 @@ def test_default_gates_match_expected():
     assert DEFAULT_GATES == {
         "largest_topic_share_max": 0.10,
         "noise_share_max": 0.50,
-        "min_peakedness_min": 0.05,
+        "flat_topic_share_max": 0.50,
         "n_topics_min": 30,
+        "n_topics_max": 200,
     }
+
+
+def test_stable_core_distance_matches_hdbscan_in_low_dim():
+    from hdbscan.validity import all_points_core_distance
+
+    from email_cls_with_clustering.evaluate import _stable_core_distance
+    from sklearn.metrics import pairwise_distances
+
+    rng = np.random.default_rng(0)
+    dist = pairwise_distances(rng.normal(size=(50, 3)))
+    np.testing.assert_allclose(
+        _stable_core_distance(dist, d=3), all_points_core_distance(dist.copy(), d=3)
+    )
+
+
+def test_dbcv_is_finite_and_scale_invariant_in_high_dim():
+    rng = np.random.default_rng(1)
+    centers = rng.normal(size=(2, 384))
+    X = np.vstack([c + 0.3 * rng.normal(size=(100, 384)) for c in centers])
+    X /= np.linalg.norm(X, axis=1, keepdims=True)
+    y = np.repeat([0, 1], 100)
+    score = dbcv(X, y, sample=None)
+    assert np.isfinite(score)
+    assert dbcv(X * 1000, y, sample=None) == pytest.approx(score)
+
+
+def test_gate_violation_is_zero_when_passing_and_grows_with_the_miss():
+    from email_cls_with_clustering.evaluate import gate_violation
+
+    gates = {"noise_share_max": 0.5, "n_topics_min": 30}
+    assert gate_violation({"noise_share": 0.4, "n_topics": 40}, gates) == 0.0
+    near = gate_violation({"noise_share": 0.55, "n_topics": 40}, gates)
+    far = gate_violation({"noise_share": 0.9, "n_topics": 10}, gates)
+    assert 0 < near < far
+    assert gate_violation({}, gates) == 2.0

@@ -29,8 +29,33 @@
       "gen_min_span_tree": true
     },
     "vectorizer": {
-      "stop_words": "EN_STOP | ES_STOP",
-      "ngram_range": [1, 1]
+      "stop_words": "EN_STOP | email | pii | calendar",
+      "email_stop_words": [
+        "enron", "ect", "hou", "cc", "subject", "pm", "am", "thanks", "please",
+        "fyi", "com", "www", "http", "let", "know", "would", "could", "get",
+        "also", "email", "send", "question", "information", "thank", "time",
+        "new", "attach", "attached", "attachment", "attachments", "day", "good",
+        "look", "use", "follow", "today", "date", "like", "year", "message",
+        "note", "comment", "ask", "start", "request", "requests", "contact",
+        "come", "receive", "need", "change", "want", "think", "list", "group",
+        "include", "number", "meet", "talk", "help", "week", "share", "provide",
+        "update", "updates", "issue", "issues", "discuss", "regard", "sure",
+        "try", "hope", "able", "copy", "copies", "fw", "fwd"
+      ],
+      "pii_entities": [
+        "LOCATION", "PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "PHONENUMBER",
+        "US_SSN", "CREDIT_CARD", "IBAN_CODE", "EMAILADDRESS"
+      ],
+      "months": [
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct",
+        "nov", "dec", "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december"
+      ],
+      "days": [
+        "mon", "tue", "wed", "thu", "fri", "sat", "sun", "monday", "tuesday",
+        "wednesday", "thursday", "friday", "saturday", "sunday"
+      ],
+      "ngram_range": [1, 2]
     },
     "tracking": {
       "mlflow": true,
@@ -53,9 +78,10 @@
     },
     "hard_gates": {
       "largest_topic_share_max": 0.10,
-      "noise_share_max": 0.56,
-      "min_peakedness_min": 0.0,
-      "n_topics_min": 30
+      "noise_share_max": 0.65,
+      "flat_topic_share_max": 0.50,
+      "n_topics_min": 30,
+      "n_topics_max": 300
     },
     "ranking": {
       "if_ground_truth_available": ["ami", "ari"],
@@ -109,7 +135,23 @@
       "id": 3,
       "name": "hdbscan",
       "search": "grid",
-      "fallback_search": { "method": "optuna_tpe", "n_trials_per_projection": 40, "use_if": "HDBSCAN on 50 dimensions is too slow" },
+      "fallback_search": {
+        "method": "optuna_tpe",
+        "use_if": "HDBSCAN on 50 dimensions is too slow, or to explore between grid points",
+        "n_trials_per_projection": 40,
+        "seed": 42,
+        "storage": "hpo/stage3/optuna.db (one study per projection and search setup; reruns resume)",
+        "space": {
+          "min_cluster_size": { "type": "int", "low": 15, "high": 500, "log": true },
+          "min_samples": { "type": "int", "low": 1, "high": 100, "log": true },
+          "cluster_selection_method": { "type": "categorical", "choices": ["eom", "leaf"] },
+          "cluster_selection_epsilon": { "type": "float", "low": 0.0, "high": 0.5, "step": 0.01 }
+        },
+        "space_note": "min_samples is capped at min_cluster_size after sampling.",
+        "objective": { "coherence_c_npmi": 1.0, "topic_diversity": 0.5, "noise_share": -0.5 },
+        "objective_note": "Maximized. Weighted metrics must lie in [-1, 1]. Add dbcv with a weight to include it.",
+        "gate_penalty": 1.0
+      },
       "input": "cached UMAP projection",
       "scale": "full corpus",
       "space": {
@@ -150,7 +192,8 @@
         "topics_per_finalist": 30,
         "finalists": 3
       },
-      "post_selection_not_tuned": ["vectorizer ngram_range", "representation_model"]
+      "post_selection_not_tuned": ["representation_model"],
+      "note": "vectorizer ngram_range is fixed at [1, 2] in prerequisites and is not searched."
     }
   ],
   "budget": {

@@ -76,14 +76,42 @@ def coherence(topic_model, texts, measure: str = "c_npmi", topk: int = 10) -> fl
         return float("nan")
 
 
+def _stable_core_distance(distance_matrix, d=2.0):
+    """All-points core distance computed in log space.
+
+    ``hdbscan.validity.all_points_core_distance`` raises ``1 / dist`` to the
+    ``d``-th power. On 384-dim embeddings that overflows to ``inf`` and the core
+    distance collapses to 0, which silently biases DBCV. This returns
+    ``(mean_j dist_ij ** -d) ** (-1 / d)`` via logsumexp, same as the paper.
+    Zero distances (the point itself, duplicates) are skipped as upstream does.
+    """
+    from scipy.special import logsumexp
+
+    distance_matrix = np.asarray(distance_matrix, dtype=np.float64)
+    n = distance_matrix.shape[0]
+    if n < 2:
+        return np.zeros(n)
+    positive = distance_matrix > 0
+    with np.errstate(divide="ignore"):
+        log_inv = np.where(positive, -d * np.log(distance_matrix), -np.inf)
+    log_mean = logsumexp(log_inv, axis=1) - np.log(n - 1)
+    result = np.exp(-log_mean / d)
+    # Rows with no positive distance have log_mean = -inf; upstream returns 0.
+    result[~positive.any(axis=1)] = 0.0
+    return result
+
+
 def dbcv(embeddings, labels, sample: int | None = 20_000, seed: int = 42) -> float:
     """DBCV on the ORIGINAL embedding space. Noise points are dropped.
 
     Returns NaN when the labeling is too degenerate for the MST (fewer than
     two non-noise points, or any remaining cluster with size < 2), or when
-    ``validity_index`` raises ``ValueError``.
+    ``validity_index`` raises ``ValueError``. Core distances use
+    :func:`_stable_core_distance` so high-dimensional inputs do not overflow.
     """
-    from hdbscan.validity import validity_index
+    from unittest import mock
+
+    from hdbscan import validity
 
     embeddings = np.asarray(embeddings, dtype=np.float64)
     labels = np.asarray(labels)
@@ -99,7 +127,8 @@ def dbcv(embeddings, labels, sample: int | None = 20_000, seed: int = 42) -> flo
     if counts.min() < 2:
         return float("nan")
     try:
-        return float(validity_index(X, y))
+        with mock.patch.object(validity, "all_points_core_distance", _stable_core_distance):
+            return float(validity.validity_index(X, y))
     except ValueError:
         return float("nan")
 
@@ -165,8 +194,9 @@ FLAT_PEAK = 0.05
 DEFAULT_GATES = {
     "largest_topic_share_max": 0.10,
     "noise_share_max": 0.50,
-    "min_peakedness_min": 0.05,
+    "flat_topic_share_max": 0.50,
     "n_topics_min": 30,
+    "n_topics_max": 200,
 }
 
 METRIC_ALIASES = {
@@ -268,6 +298,34 @@ def passes_hard_gates(
         else:
             raise ValueError(f"Unrecognized gate key: {key}")
     return True
+
+
+def gate_violation(
+    metrics: dict[str, float],
+    gates: dict[str, float] | None = None,
+) -> float:
+    """Sum of relative gate misses; 0.0 when every gate passes.
+
+    Each miss is ``|value - bound| / max(|bound|, 1e-9)`` on the failing side.
+    A missing or non-finite metric counts as a full miss of 1.0.
+    """
+    active = gates if gates is not None else DEFAULT_GATES
+    total = 0.0
+    for key, bound in active.items():
+        if key.endswith("_max"):
+            metric_name, sign = key[: -len("_max")], 1.0
+        elif key.endswith("_min"):
+            metric_name, sign = key[: -len("_min")], -1.0
+        else:
+            raise ValueError(f"Unrecognized gate key: {key}")
+        value = metrics.get(metric_name)
+        if value is None or not np.isfinite(value):
+            total += 1.0
+            continue
+        miss = sign * (value - bound)
+        if miss > 0:
+            total += miss / max(abs(bound), 1e-9)
+    return total
 
 
 def rank_key(metrics: dict[str, float], order: Sequence[str]) -> tuple:

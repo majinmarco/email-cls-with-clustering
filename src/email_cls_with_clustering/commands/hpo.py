@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from email_cls_with_clustering.commands.topic_model import add_document_unit_args
 from email_cls_with_clustering.hpo import DEFAULT_SPEC, run_hpo
 from email_cls_with_clustering.paths import notebooks_dir
 
@@ -23,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--input",
         type=Path,
         default=None,
-        help="Cleaned CSV. Defaults to notebooks/emails_preprocessed.csv.",
+        help="Cleaned CSV. Defaults to notebooks/emails_preprocessed_no_spam.csv.",
     )
     parser.add_argument(
         "--from-stage",
@@ -50,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="dotenv file for the OpenAI backend. Defaults to notebooks/.env.",
     )
+    add_document_unit_args(parser)
     return parser
 
 
@@ -58,11 +60,12 @@ def main(argv: list[str] | None = None) -> None:
     data_dir = notebooks_dir()
     run_hpo(
         spec_path=args.spec,
-        input_path=args.input or (data_dir / "emails_preprocessed.csv"),
+        input_path=args.input or (data_dir / "emails_preprocessed_no_spam.csv"),
         from_stage=args.from_stage,
         hdbscan_search=args.hdbscan_search,
         output=args.output,
         env_file=args.env_file or (data_dir / ".env"),
+        join_threads=args.join_threads,
     )
 
 

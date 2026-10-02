@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
@@ -49,7 +50,7 @@ class TopicHyperparams:
     max_seq_length: int = ST_MAX_SEQ_LENGTH
     post_processing: str = "none"
     top_k: int | None = None
-    ngram_range: tuple[int, int] = (1, 1)
+    ngram_range: tuple[int, int] = (1, 2)
 
     def resolved_embed_model(self) -> str:
         return active_embed_model(self.embed_backend, self.embed_model)
@@ -99,6 +100,73 @@ def _mlflow_value(value: Any) -> Any:
     return str(value)
 
 
+STOP_WORDS_LABEL = "EN_STOP | email | pii | calendar"
+# Letters only, length >= 2. Drops dates and ids (42401, 20010102, 000).
+TOKEN_PATTERN = r"(?u)\b[a-zA-Z]{2,}\b"
+_DEFAULT_HPO_SPEC = Path(__file__).resolve().parents[2] / "configs" / "enron-email-topic-model-hpo.json"
+
+
+def _collapsed_token(token: str) -> str:
+    """Form left after ``preprocess_full_message`` strips ``_`` and brackets."""
+    return re.sub(r"[^a-z0-9]", "", token.lower())
+
+
+def extra_stop_words_from_vectorizer(vectorizer: dict[str, Any]) -> list[str]:
+    """Expand HPO ``prerequisites.vectorizer`` email / PII / calendar extras.
+
+    PII placeholders are lowercased and stripped of ``_`` and brackets before
+    c-TF-IDF, so ``PHONE_NUMBER`` must also stop ``phonenumber``.
+    """
+    words: set[str] = set()
+    for token in (
+        *vectorizer.get("email_stop_words", ()),
+        *vectorizer.get("months", ()),
+        *vectorizer.get("days", ()),
+    ):
+        words.add(str(token).lower())
+    for entity in vectorizer.get("pii_entities", ()):
+        name = str(entity).lower()
+        words.update({name, f"<{name}>", f"[{name}]", _collapsed_token(name)})
+    return sorted(word for word in words if word)
+
+
+def vectorizer_stop_words(extra: list[str] | None = None) -> list[str]:
+    """SpaCy English stop words plus optional extras (email / PII / calendar)."""
+    from spacy.lang.en.stop_words import STOP_WORDS as EN_STOP
+
+    return list(EN_STOP | set(extra or ()))
+
+
+def default_stop_words() -> list[str]:
+    """English stops plus extras from the default Enron HPO config."""
+    vectorizer = json.loads(_DEFAULT_HPO_SPEC.read_text())["prerequisites"]["vectorizer"]
+    return vectorizer_stop_words(extra_stop_words_from_vectorizer(vectorizer))
+
+
+def vectorizer_id(stop_words: list[str], ngram_range: tuple[int, int]) -> str:
+    """Identity of the c-TF-IDF vectorizer. Resume must not mix corpora or lists."""
+    material = {
+        "stop_words": sorted(set(stop_words)),
+        "ngram_range": list(ngram_range),
+        "token_pattern": TOKEN_PATTERN,
+    }
+    return hashlib.blake2b(
+        json.dumps(material, sort_keys=True).encode("utf-8"),
+        digest_size=8,
+    ).hexdigest()
+
+
+def make_vectorizer(stop_words: list[str], ngram_range: tuple[int, int]):
+    """CountVectorizer shared by BERTopic fits and the analysis notebook."""
+    from sklearn.feature_extraction.text import CountVectorizer
+
+    return CountVectorizer(
+        stop_words=stop_words,
+        ngram_range=ngram_range,
+        token_pattern=TOKEN_PATTERN,
+    )
+
+
 def params_for_mlflow(
     params: TopicHyperparams,
     extra: dict[str, Any] | None = None,
@@ -107,7 +175,7 @@ def params_for_mlflow(
     logged = {key: _mlflow_value(value) for key, value in asdict(params).items()}
     logged["embed_model_resolved"] = params.resolved_embed_model()
     logged["normalize_embeddings"] = True
-    logged["stop_words"] = "EN_STOP | ES_STOP"
+    logged["stop_words"] = STOP_WORDS_LABEL
     if extra:
         for key, value in extra.items():
             logged[key] = _mlflow_value(value)
@@ -210,18 +278,16 @@ def fit_hdbscan_on_projection(
     params: TopicHyperparams,
     *,
     calculate_probabilities: bool,
+    stop_words: list[str] | None = None,
 ):
     """Fit BERTopic with a frozen projection (no UMAP re-fit)."""
     from bertopic import BERTopic
     from bertopic.dimensionality import BaseDimensionalityReduction
     from hdbscan import HDBSCAN
-    from sklearn.feature_extraction.text import CountVectorizer
-    from spacy.lang.en.stop_words import STOP_WORDS as EN_STOP
-    from spacy.lang.es.stop_words import STOP_WORDS as ES_STOP
 
-    vectorizer_model = CountVectorizer(
-        stop_words=list(EN_STOP | ES_STOP),
-        ngram_range=params.ngram_range,
+    vectorizer_model = make_vectorizer(
+        stop_words if stop_words is not None else default_stop_words(),
+        params.ngram_range,
     )
     topic_model = BERTopic(
         embedding_model=None,
@@ -265,12 +331,74 @@ def apply_topic_labels(topic_model, docs: list[str], topics) -> None:
     )
 
 
+THREAD_JOIN_SEP = "\n\n"
+
+
+def join_by_thread(
+    frame: pd.DataFrame,
+    *,
+    thread_col: str = "thread_id",
+    date_col: str = "date_parsed",
+    embed_col: str = "embed_text",
+    ctfidf_col: str = "ctfidf_text",
+    sep: str = THREAD_JOIN_SEP,
+) -> pd.DataFrame:
+    """Collapse rows that share ``thread_id`` into one document per thread.
+
+    Joins ``embed_text`` and ``ctfidf_text`` separately (never mixed), in
+    chronological ``date_parsed`` order when that column exists, else stable
+    input order within each thread. Returns ``thread_id``, ``n_messages``,
+    the two joined text columns, plus ``subj_norm``, ``ground_truth``,
+    ``date_parsed``, ``Date``, ``From``, ``To``, and ``Subject`` when present
+    (first value in join order, which is the earliest message when dates exist).
+    """
+    if thread_col not in frame.columns:
+        raise KeyError(
+            f"frame must include '{thread_col}' to join threads; "
+            "run preprocess first or omit --join-threads"
+        )
+    if embed_col not in frame.columns or ctfidf_col not in frame.columns:
+        raise KeyError(f"frame must include '{embed_col}' and '{ctfidf_col}' columns")
+    if frame[thread_col].isna().any():
+        raise ValueError(
+            f"'{thread_col}' contains missing values; cannot join threads"
+        )
+
+    work = frame.copy()
+    work["_ord"] = range(len(work))
+    sort_cols = [thread_col]
+    if date_col in work.columns:
+        work[date_col] = pd.to_datetime(work[date_col], utc=True, errors="coerce")
+        sort_cols.append(date_col)
+    sort_cols.append("_ord")
+    work = work.sort_values(sort_cols, kind="mergesort", na_position="last")
+
+    keep_first = [
+        col
+        for col in ("subj_norm", "ground_truth", "date_parsed", "From", "To", "Subject", "Date")
+        if col in work.columns
+    ]
+    rows: list[dict[str, Any]] = []
+    for thread_id, group in work.groupby(thread_col, sort=False):
+        row: dict[str, Any] = {
+            thread_col: thread_id,
+            "n_messages": int(len(group)),
+            embed_col: sep.join(group[embed_col].fillna("").astype(str)),
+            ctfidf_col: sep.join(group[ctfidf_col].fillna("").astype(str)),
+        }
+        for col in keep_first:
+            row[col] = group[col].iloc[0]
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def fit_topics(
     frame: pd.DataFrame,
     params: TopicHyperparams,
     *,
     cache_dir: Path,
     env_file: Path | None = None,
+    stop_words: list[str] | None = None,
 ):
     """Embed ``embed_text`` (cached), post-process, and fit BERTopic.
 
@@ -278,9 +406,6 @@ def fit_topics(
     """
     from bertopic import BERTopic
     from hdbscan import HDBSCAN
-    from sklearn.feature_extraction.text import CountVectorizer
-    from spacy.lang.en.stop_words import STOP_WORDS as EN_STOP
-    from spacy.lang.es.stop_words import STOP_WORDS as ES_STOP
     from umap import UMAP
 
     if "embed_text" not in frame.columns or "ctfidf_text" not in frame.columns:
@@ -306,9 +431,9 @@ def fit_topics(
 
     umap_model = UMAP(**umap_kwargs(params))
     hdbscan_model = HDBSCAN(**hdbscan_kwargs(params))
-    vectorizer_model = CountVectorizer(
-        stop_words=list(EN_STOP | ES_STOP),
-        ngram_range=params.ngram_range,
+    vectorizer_model = make_vectorizer(
+        stop_words if stop_words is not None else default_stop_words(),
+        params.ngram_range,
     )
     topic_model = BERTopic(
         embedding_model=None,

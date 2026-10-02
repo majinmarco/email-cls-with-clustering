@@ -1,0 +1,465 @@
+{
+  "parent_run_id": "17b7413d70fc4785bc02af2fb7b17f23",
+  "trial_id": "BAAI_bge-small-en-v1.5__mean_removal_plus_top_k__k3__umap_nc25_nn50__mcs25_ms15_eom_eps0.0__c-tf-idf__thr0.1",
+  "model_path": "/home/marco/development/email-cls-with-clustering/notebooks/emails_clustered_BAAI_bge-small-en-v1.5__mean_removal_plus_top_k__k3__umap_nc25_nn50__mcs25_ms15_eom_eps0.0__c-tf-idf__thr0.1_20260930T042758_model.pkl",
+  "metrics": {
+    "noise_share": 0.16726237984523024,
+    "coherence_c_npmi": 0.10396107135423685,
+    "n_topics": 581.0,
+    "dbcv": -0.09426746981933504
+  },
+  "results": [
+    {
+      "index": 0,
+      "topic_id": 558,
+      "shown": [
+        "confirmations",
+        "detected",
+        "unitid",
+        "42401",
+        "variances",
+        "mkttype"
+      ],
+      "guess": "42401",
+      "answer": "confirmations",
+      "correct": false
+    },
+    {
+      "index": 1,
+      "topic_id": 107,
+      "shown": [
+        "010100",
+        "20010102",
+        "20010103",
+        "0308",
+        "20010308",
+        "dispute"
+      ],
+      "guess": "dispute",
+      "answer": "dispute",
+      "correct": true
+    },
+    {
+      "index": 2,
+      "topic_id": 257,
+      "shown": [
+        "storage",
+        "bcf",
+        "000",
+        "enerfax",
+        "notices",
+        "natural"
+      ],
+      "guess": "000",
+      "answer": "notices",
+      "correct": false
+    },
+    {
+      "index": 3,
+      "topic_id": 328,
+      "shown": [
+        "completed",
+        "phase",
+        "stdp",
+        "tds",
+        "gtv",
+        "development"
+      ],
+      "guess": "stdp",
+      "answer": "stdp",
+      "correct": true
+    },
+    {
+      "index": 4,
+      "topic_id": 575,
+      "shown": [
+        "monitor",
+        "ending",
+        "global",
+        "01",
+        "hour",
+        "gmm"
+      ],
+      "guess": "gmm",
+      "answer": "hour",
+      "correct": false
+    },
+    {
+      "index": 5,
+      "topic_id": 277,
+      "shown": [
+        "fare",
+        "clickathome",
+        "newpower",
+        "ordering",
+        "pilot",
+        "internet"
+      ],
+      "guess": "clickathome",
+      "answer": "fare",
+      "correct": false
+    },
+    {
+      "index": 6,
+      "topic_id": 194,
+      "shown": [
+        "litigation",
+        "legal",
+        "io",
+        "report",
+        "monthly",
+        "status"
+      ],
+      "guess": "io",
+      "answer": "io",
+      "correct": true
+    },
+    {
+      "index": 7,
+      "topic_id": 60,
+      "shown": [
+        "fw",
+        "storage",
+        "natural",
+        "cig",
+        "process",
+        "gas"
+      ],
+      "guess": "cig",
+      "answer": "process",
+      "correct": false
+    },
+    {
+      "index": 8,
+      "topic_id": 351,
+      "shown": [
+        "rp",
+        "detected",
+        "tendered",
+        "eff",
+        "executed",
+        "10000d"
+      ],
+      "guess": "10000d",
+      "answer": "detected",
+      "correct": false
+    },
+    {
+      "index": 9,
+      "topic_id": 266,
+      "shown": [
+        "195",
+        "reservation",
+        "ls",
+        "azps",
+        "usssn",
+        "pnpkaps230"
+      ],
+      "guess": "pnpkaps230",
+      "answer": "ls",
+      "correct": false
+    },
+    {
+      "index": 10,
+      "topic_id": 19,
+      "shown": [
+        "hpl",
+        "curricular",
+        "meter",
+        "daren",
+        "meters",
+        "deal"
+      ],
+      "guess": "curricular",
+      "answer": "curricular",
+      "correct": true
+    },
+    {
+      "index": 11,
+      "topic_id": 140,
+      "shown": [
+        "expansion",
+        "natural",
+        "draft",
+        "shippers",
+        "gpcm",
+        "pipeline"
+      ],
+      "guess": "shippers",
+      "answer": "draft",
+      "correct": false
+    },
+    {
+      "index": 12,
+      "topic_id": 154,
+      "shown": [
+        "novice",
+        "fw",
+        "renewable",
+        "power",
+        "draft",
+        "fyi"
+      ],
+      "guess": "novice",
+      "answer": "draft",
+      "correct": false
+    },
+    {
+      "index": 13,
+      "topic_id": 375,
+      "shown": [
+        "sppsp",
+        "volatility",
+        "nc",
+        "matrix",
+        "range",
+        "contracts"
+      ],
+      "guess": "matrix",
+      "answer": "contracts",
+      "correct": false
+    },
+    {
+      "index": 14,
+      "topic_id": 371,
+      "shown": [
+        "wires",
+        "wire",
+        "payment",
+        "transfer",
+        "40781075",
+        "game"
+      ],
+      "guess": "game",
+      "answer": "game",
+      "correct": true
+    },
+    {
+      "index": 15,
+      "topic_id": 364,
+      "shown": [
+        "gcp",
+        "531786",
+        "eol",
+        "credit",
+        "vac",
+        "responses"
+      ],
+      "guess": "responses",
+      "answer": "vac",
+      "correct": false
+    },
+    {
+      "index": 16,
+      "topic_id": 514,
+      "shown": [
+        "entered",
+        "annuity",
+        "ltsw",
+        "stwr",
+        "annuities",
+        "revised"
+      ],
+      "guess": "stwr",
+      "answer": "revised",
+      "correct": false
+    },
+    {
+      "index": 17,
+      "topic_id": 80,
+      "shown": [
+        "stocks",
+        "published",
+        "nasdaq",
+        "schwab",
+        "eps",
+        "charles"
+      ],
+      "guess": "eps",
+      "answer": "published",
+      "correct": false
+    },
+    {
+      "index": 18,
+      "topic_id": 213,
+      "shown": [
+        "swap",
+        "access",
+        "link",
+        "working",
+        "database",
+        "agreements"
+      ],
+      "guess": "swap",
+      "answer": "working",
+      "correct": false
+    },
+    {
+      "index": 19,
+      "topic_id": 442,
+      "shown": [
+        "omaha",
+        "server",
+        "maintenance",
+        "ets",
+        "solution",
+        "fundamental"
+      ],
+      "guess": "fundamental",
+      "answer": "fundamental",
+      "correct": true
+    },
+    {
+      "index": 20,
+      "topic_id": 115,
+      "shown": [
+        "rank",
+        "press",
+        "yards",
+        "allowed",
+        "passing",
+        "defense"
+      ],
+      "guess": "rank",
+      "answer": "press",
+      "correct": false
+    },
+    {
+      "index": 21,
+      "topic_id": 307,
+      "shown": [
+        "storage",
+        "box",
+        "bcf",
+        "spread",
+        "upadate",
+        "aga"
+      ],
+      "guess": "upadate",
+      "answer": "spread",
+      "correct": false
+    },
+    {
+      "index": 22,
+      "topic_id": 85,
+      "shown": [
+        "degree",
+        "laptop",
+        "dell",
+        "pc",
+        "monitor",
+        "keyboard"
+      ],
+      "guess": "degree",
+      "answer": "degree",
+      "correct": true
+    },
+    {
+      "index": 23,
+      "topic_id": 223,
+      "shown": [
+        "summary",
+        "metafile",
+        "embedded",
+        "enrononline",
+        "picture",
+        "ahead"
+      ],
+      "guess": "picture",
+      "answer": "ahead",
+      "correct": false
+    },
+    {
+      "index": 24,
+      "topic_id": 212,
+      "shown": [
+        "construction",
+        "rentroll",
+        "flair",
+        "paragraph",
+        "persons",
+        "property"
+      ],
+      "guess": "flair",
+      "answer": "persons",
+      "correct": false
+    },
+    {
+      "index": 25,
+      "topic_id": 242,
+      "shown": [
+        "personap",
+        "environmental",
+        "personenron",
+        "ditto",
+        "communications",
+        "personhou"
+      ],
+      "guess": "ditto",
+      "answer": "environmental",
+      "correct": false
+    },
+    {
+      "index": 26,
+      "topic_id": 89,
+      "shown": [
+        "majeure",
+        "1doc",
+        "force",
+        "marketwatch",
+        "calpine",
+        "nomination"
+      ],
+      "guess": null,
+      "answer": "marketwatch",
+      "correct": false
+    },
+    {
+      "index": 27,
+      "topic_id": 32,
+      "shown": [
+        "goldman",
+        "flatiron",
+        "bear",
+        "ect",
+        "brokerage",
+        "eci"
+      ],
+      "guess": "bear",
+      "answer": "flatiron",
+      "correct": false
+    },
+    {
+      "index": 28,
+      "topic_id": 549,
+      "shown": [
+        "viewer",
+        "report",
+        "meetingperson",
+        "work",
+        "dealno",
+        "reports"
+      ],
+      "guess": "dealno",
+      "answer": "dealno",
+      "correct": true
+    },
+    {
+      "index": 29,
+      "topic_id": 487,
+      "shown": [
+        "drafting",
+        "20004",
+        "eei",
+        "caps",
+        "annex",
+        "701"
+      ],
+      "guess": "701",
+      "answer": "caps",
+      "correct": false
+    }
+  ],
+  "n_answered": 29,
+  "score": 0.27586206896551724
+}

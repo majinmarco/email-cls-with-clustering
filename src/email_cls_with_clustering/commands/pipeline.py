@@ -11,6 +11,7 @@ from email_cls_with_clustering.commands.preprocess import (
 )
 from email_cls_with_clustering.commands.topic_model import (
     DEFAULT_OUTPUT_NAME as CLUSTERED_NAME,
+    add_document_unit_args,
     add_eval_args,
     add_hyperparam_args,
     params_from_args,
@@ -25,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_hyperparam_args(parser)
     add_eval_args(parser)
+    add_document_unit_args(parser)
     parser.add_argument(
         "--raw-input",
         type=Path,
@@ -90,5 +92,6 @@ def main(argv: list[str] | None = None) -> None:
         env_file=env_file,
         coherence=not args.no_coherence,
         dbcv=not args.no_dbcv,
+        join_threads=args.join_threads,
     )
     print(f"pipeline output → {written}")

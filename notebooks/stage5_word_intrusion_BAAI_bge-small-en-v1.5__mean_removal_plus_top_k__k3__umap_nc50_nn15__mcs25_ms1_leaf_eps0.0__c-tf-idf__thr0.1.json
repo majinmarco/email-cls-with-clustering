@@ -1,0 +1,465 @@
+{
+  "parent_run_id": "17b7413d70fc4785bc02af2fb7b17f23",
+  "trial_id": "BAAI_bge-small-en-v1.5__mean_removal_plus_top_k__k3__umap_nc50_nn15__mcs25_ms1_leaf_eps0.0__c-tf-idf__thr0.1",
+  "model_path": "/home/marco/development/email-cls-with-clustering/notebooks/emails_clustered_BAAI_bge-small-en-v1.5__mean_removal_plus_top_k__k3__umap_nc50_nn15__mcs25_ms1_leaf_eps0.0__c-tf-idf__thr0.1_20260930T035545_model.pkl",
+  "metrics": {
+    "noise_share": 0.14138182322934378,
+    "coherence_c_npmi": 0.0626420792010001,
+    "n_topics": 1198.0,
+    "dbcv": -0.08069161235623813
+  },
+  "results": [
+    {
+      "index": 0,
+      "topic_id": 846,
+      "shown": [
+        "holiday",
+        "deposit",
+        "rentroll",
+        "rent",
+        "paid",
+        "ac"
+      ],
+      "guess": "ac",
+      "answer": "holiday",
+      "correct": false
+    },
+    {
+      "index": 1,
+      "topic_id": 1052,
+      "shown": [
+        "membership",
+        "fw",
+        "intention",
+        "secretarys",
+        "lessor",
+        "advised"
+      ],
+      "guess": "fw",
+      "answer": "fw",
+      "correct": true
+    },
+    {
+      "index": 2,
+      "topic_id": 283,
+      "shown": [
+        "master",
+        "draft",
+        "city",
+        "enfolio",
+        "purchasesale",
+        "outbox"
+      ],
+      "guess": "city",
+      "answer": "outbox",
+      "correct": false
+    },
+    {
+      "index": 3,
+      "topic_id": 502,
+      "shown": [
+        "supersticious",
+        "fw",
+        "thank",
+        "gottlob",
+        "memory",
+        "enadelta"
+      ],
+      "guess": "gottlob",
+      "answer": "memory",
+      "correct": false
+    },
+    {
+      "index": 4,
+      "topic_id": 1015,
+      "shown": [
+        "sorry",
+        "apologize",
+        "powerpoint",
+        "parliamentary",
+        "great",
+        "apology"
+      ],
+      "guess": "powerpoint",
+      "answer": "great",
+      "correct": false
+    },
+    {
+      "index": 5,
+      "topic_id": 959,
+      "shown": [
+        "fed",
+        "package",
+        "fedex",
+        "introduction",
+        "joc",
+        "ups"
+      ],
+      "guess": "joc",
+      "answer": "introduction",
+      "correct": false
+    },
+    {
+      "index": 6,
+      "topic_id": 1111,
+      "shown": [
+        "doc",
+        "compared",
+        "redline",
+        "blackline",
+        "participant",
+        "paf"
+      ],
+      "guess": "paf",
+      "answer": "participant",
+      "correct": false
+    },
+    {
+      "index": 7,
+      "topic_id": 299,
+      "shown": [
+        "df",
+        "thanks",
+        "pls",
+        "bt",
+        "print",
+        "binders"
+      ],
+      "guess": "print",
+      "answer": "binders",
+      "correct": false
+    },
+    {
+      "index": 8,
+      "topic_id": 106,
+      "shown": [
+        "exclusively",
+        "escrow",
+        "disseminate",
+        "spalding",
+        "user",
+        "addressee"
+      ],
+      "guess": "exclusively",
+      "answer": "user",
+      "correct": false
+    },
+    {
+      "index": 9,
+      "topic_id": 619,
+      "shown": [
+        "windfall",
+        "tax",
+        "microsoft174",
+        "128",
+        "128x",
+        "profits"
+      ],
+      "guess": "microsoft174",
+      "answer": "microsoft174",
+      "correct": true
+    },
+    {
+      "index": 10,
+      "topic_id": 538,
+      "shown": [
+        "payroll",
+        "stub",
+        "ehronline",
+        "roll",
+        "paycheck",
+        "stubs"
+      ],
+      "guess": "ehronline",
+      "answer": "roll",
+      "correct": false
+    },
+    {
+      "index": 11,
+      "topic_id": 814,
+      "shown": [
+        "enrononline",
+        "x36161",
+        "intranet",
+        "allyson",
+        "dropdown",
+        "audiences"
+      ],
+      "guess": "x36161",
+      "answer": "allyson",
+      "correct": false
+    },
+    {
+      "index": 12,
+      "topic_id": 1038,
+      "shown": [
+        "enrontranswesternparticulates",
+        "confirmation",
+        "letter",
+        "sng",
+        "eol",
+        "aflcio"
+      ],
+      "guess": "sng",
+      "answer": "eol",
+      "correct": false
+    },
+    {
+      "index": 13,
+      "topic_id": 140,
+      "shown": [
+        "descs",
+        "enjoy",
+        "data",
+        "circulation",
+        "daily",
+        "ercot"
+      ],
+      "guess": "enjoy",
+      "answer": "circulation",
+      "correct": false
+    },
+    {
+      "index": 14,
+      "topic_id": 816,
+      "shown": [
+        "experience",
+        "quant",
+        "monthly",
+        "quantitative",
+        "computational",
+        "skills"
+      ],
+      "guess": "experience",
+      "answer": "monthly",
+      "correct": false
+    },
+    {
+      "index": 15,
+      "topic_id": 193,
+      "shown": [
+        "originations",
+        "midmarket",
+        "originators",
+        "contributions",
+        "orig",
+        "origination"
+      ],
+      "guess": "contributions",
+      "answer": "contributions",
+      "correct": true
+    },
+    {
+      "index": 16,
+      "topic_id": 1169,
+      "shown": [
+        "donations",
+        "relief",
+        "victims",
+        "pv",
+        "flood",
+        "matching"
+      ],
+      "guess": "pv",
+      "answer": "pv",
+      "correct": true
+    },
+    {
+      "index": 17,
+      "topic_id": 414,
+      "shown": [
+        "aeps",
+        "registercom",
+        "enrononline",
+        "privacy",
+        "patent",
+        "domain"
+      ],
+      "guess": "registercom",
+      "answer": "aeps",
+      "correct": false
+    },
+    {
+      "index": 18,
+      "topic_id": 848,
+      "shown": [
+        "policy",
+        "doe",
+        "secretary",
+        "addressee",
+        "legislation",
+        "deputy"
+      ],
+      "guess": "addressee",
+      "answer": "addressee",
+      "correct": true
+    },
+    {
+      "index": 19,
+      "topic_id": 1147,
+      "shown": [
+        "ge",
+        "agreementdoc",
+        "turbine",
+        "brm",
+        "blackline",
+        "austin"
+      ],
+      "guess": "brm",
+      "answer": "brm",
+      "correct": true
+    },
+    {
+      "index": 20,
+      "topic_id": 91,
+      "shown": [
+        "dissemination",
+        "intended",
+        "101201",
+        "recipient",
+        "attachments",
+        "prohibited"
+      ],
+      "guess": "101201",
+      "answer": "101201",
+      "correct": true
+    },
+    {
+      "index": 21,
+      "topic_id": 158,
+      "shown": [
+        "report41201",
+        "expenses",
+        "reports",
+        "expense",
+        "checks",
+        "report"
+      ],
+      "guess": "checks",
+      "answer": "report41201",
+      "correct": false
+    },
+    {
+      "index": 22,
+      "topic_id": 729,
+      "shown": [
+        "cftcs",
+        "cftc",
+        "avista",
+        "oportlandwestdeskcalifornia",
+        "cfma",
+        "futures"
+      ],
+      "guess": "scid",
+      "answer": "oportlandwestdeskcalifornia",
+      "correct": false
+    },
+    {
+      "index": 23,
+      "topic_id": 166,
+      "shown": [
+        "mkttype",
+        "scid",
+        "students",
+        "variance",
+        "transdate",
+        "transtype"
+      ],
+      "guess": "oportlandwestdeskcalifornia",
+      "answer": "students",
+      "correct": false
+    },
+    {
+      "index": 24,
+      "topic_id": 108,
+      "shown": [
+        "ceraweek",
+        "cera",
+        "ceras",
+        "title",
+        "global",
+        "urls"
+      ],
+      "guess": "scid",
+      "answer": "global",
+      "correct": false
+    },
+    {
+      "index": 25,
+      "topic_id": 903,
+      "shown": [
+        "20011120",
+        "directors",
+        "board",
+        "angelides",
+        "supervisory",
+        "resolutions"
+      ],
+      "guess": "0800",
+      "answer": "angelides",
+      "correct": false
+    },
+    {
+      "index": 26,
+      "topic_id": 823,
+      "shown": [
+        "0800",
+        "yummy",
+        "dinner",
+        "nite",
+        "sellers",
+        "rite"
+      ],
+      "guess": null,
+      "answer": "0800",
+      "correct": false
+    },
+    {
+      "index": 27,
+      "topic_id": 510,
+      "shown": [
+        "dealno",
+        "transtype",
+        "mkttype",
+        "scid",
+        "files",
+        "transdate"
+      ],
+      "guess": "scid",
+      "answer": "files",
+      "correct": false
+    },
+    {
+      "index": 28,
+      "topic_id": 786,
+      "shown": [
+        "brick",
+        "bedroom",
+        "decking",
+        "garage",
+        "dr",
+        "deck"
+      ],
+      "guess": "dr",
+      "answer": "dr",
+      "correct": true
+    },
+    {
+      "index": 29,
+      "topic_id": 565,
+      "shown": [
+        "model",
+        "24x7",
+        "war",
+        "wti",
+        "transacting",
+        "simulation"
+      ],
+      "guess": "24x7",
+      "answer": "war",
+      "correct": false
+    }
+  ],
+  "n_answered": 29,
+  "score": 0.27586206896551724
+}

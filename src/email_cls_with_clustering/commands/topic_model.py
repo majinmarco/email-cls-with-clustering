@@ -13,6 +13,7 @@ from email_cls_with_clustering.paths import notebooks_dir
 from email_cls_with_clustering.topics import (
     TopicHyperparams,
     fit_topics,
+    join_by_thread,
     merge_params,
     params_for_mlflow,
     write_topic_dataset,
@@ -48,10 +49,14 @@ def run_topic_model(
     coherence: bool = True,
     dbcv: bool = True,
     nested: bool = False,
+    join_threads: bool = False,
 ) -> Path:
     """Load a cleaned CSV, fit topics, score the run, and write a timestamped dataset."""
     frame = pd.read_csv(source)
     print(f"loaded {len(frame)} rows from {source}")
+    if join_threads:
+        frame = join_by_thread(frame)
+        print(f"joined into {len(frame)} thread documents")
     setup_tracking()
     with mlflow.start_run(run_name=f"mcs-{params.min_cluster_size}", nested=nested):
         labeled, model, cache_path, probs, embeddings = fit_topics(
@@ -193,6 +198,16 @@ def add_eval_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_document_unit_args(parser: argparse.ArgumentParser) -> None:
+    """Flags that choose the document unit for topic modeling."""
+    parser.add_argument(
+        "--join-threads",
+        action="store_true",
+        help="Join messages that share a thread_id into one document before "
+        "embedding / BERTopic. Default is one document per message.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Fit BERTopic and write emails_clustered_<datetime>.csv.",
@@ -212,6 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_hyperparam_args(parser)
     add_eval_args(parser)
+    add_document_unit_args(parser)
     return parser
 
 
@@ -259,6 +275,7 @@ def main(argv: list[str] | None = None) -> None:
         "env_file": env_file,
         "coherence": not args.no_coherence,
         "dbcv": not args.no_dbcv,
+        "join_threads": args.join_threads,
     }
     if len(runs) == 1:
         run_topic_model(source, output, merge_params(runs[0], overrides), **score_kwargs)

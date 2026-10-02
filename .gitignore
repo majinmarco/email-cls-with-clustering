@@ -47,4 +47,18 @@ notebooks/embeddings_openai_text-embedding-3-small.npy
 **/.env
 
 # personal docs
-docs
+docs/
+
+# editor locks, training checkpoints, and fitted models
+.~lock.*
+**/.~lock.*
+notebooks/checkpoints/
+*.joblib
+notebooks/*.pkl
+
+# derived corpora (regenerate from the notebooks and CLIs)
+notebooks/emails_preprocessed_*.csv
+notebooks/emails_with_*.csv
+
+# generated figures
+wordcloud*.png

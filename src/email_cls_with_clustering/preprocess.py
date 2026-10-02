@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
@@ -28,6 +28,21 @@ _BLOCK_END = re.compile(
     r"(?i)<\s*br\s*/?\s*>|</\s*(?:p|div|tr|li|h[1-6]|blockquote|table)\s*>"
 )
 _TAG = re.compile(r"<[^>]+>")
+# Tag names only. Angle-bracket titles ("<Review of Enron...>") and
+# addresses ("<user@enron.com>") must stay.
+_HTML_TAG_NAMES = (
+    "a|abbr|acronym|address|area|b|base|bdo|big|blockquote|body|br|button|"
+    "caption|center|cite|code|col|colgroup|dd|del|dfn|dir|div|dl|dt|em|"
+    "fieldset|font|form|h[1-6]|head|hr|html|i|iframe|img|input|ins|kbd|label|"
+    "legend|li|link|map|menu|meta|nobr|noscript|ol|optgroup|option|p|pre|q|s|"
+    "samp|script|select|small|span|strike|strong|style|sub|sup|table|tbody|"
+    "td|textarea|tfoot|th|thead|title|tr|tt|u|ul|var|o:p"
+)
+_HTML_TAG = re.compile(
+    rf"(?is)<!--.*?-->|<!\[[^]]*\]>|<!doctype\b[^>]*>|"
+    rf"</?(?:{_HTML_TAG_NAMES})\b(?:\s[^>]*)?/?>"
+)
+_STYLE_SCRIPT_BLOCK = re.compile(r"(?is)<(script|style)\b[^>]*>.*?</\1\s*>")
 _SPACE_RUN = re.compile(r"[^\S\n]+")
 _BLANK_RUN = re.compile(r"\n{3,}")
 
@@ -170,17 +185,42 @@ def expand_emails(
 
 
 def extract_body_text(msg) -> str:
-    """Plain text wins. HTML is converted only when the text part is empty."""
+    """Plain text wins. HTML markup is always removed.
+
+    A ``text/html`` part is converted when the plain part is empty. A
+    ``text/plain`` part whose payload is HTML (or contains tags) is stripped
+    the same way, so tags never remain in the body.
+    """
     text, html = _bodies_via_policy(msg)
     if text is None and html is None:
         text, html = _bodies_via_walk(msg)
 
-    plain = _as_str(text).strip()
+    plain = strip_html(_as_str(text).strip())
     if plain:
-        return _as_str(text).strip()
+        return plain
     if html:
         return _html_to_text(_as_str(html))
     return ""
+
+
+def strip_html(text: str) -> str:
+    """Remove HTML tags and script/style contents. Non-HTML text is unchanged.
+
+    Only real tag names are removed, so ``<user@enron.com>`` and titles such
+    as ``<Review of Enron>`` stay. Comparisons (``price < 5``) stay.
+    """
+    if not isinstance(text, str):
+        return ""
+    if not text or _HTML_TAG.search(text) is None:
+        return text
+    cleaned = _STYLE_SCRIPT_BLOCK.sub(" ", text)
+    cleaned = unescape(cleaned)
+    cleaned = _HTML_TAG.sub(" ", cleaned)
+    if _HTML_TAG.search(cleaned):
+        cleaned = _STYLE_SCRIPT_BLOCK.sub(" ", cleaned)
+        cleaned = _HTML_TAG.sub(" ", cleaned)
+    cleaned = _SPACE_RUN.sub(" ", cleaned)
+    return _tidy_lines(cleaned)
 
 
 def clean_body(text: str, sender: str) -> tuple[str, str]:
@@ -409,12 +449,20 @@ def _sender(from_header: str) -> str:
 
 
 def _parse_date(value: str) -> datetime | None:
+    """Parse an RFC 2822 Date header into a UTC-aware datetime.
+
+    ``parsedate_to_datetime`` returns aware values when the header has an
+    offset and naive ones when it does not; mixing those breaks pandas sorts.
+    """
     if not value:
         return None
     try:
-        return parsedate_to_datetime(value)
+        dt = parsedate_to_datetime(value)
     except (TypeError, ValueError, OverflowError):
         return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _headers(msg) -> dict[str, str]:

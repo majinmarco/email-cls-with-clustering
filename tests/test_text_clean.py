@@ -2,10 +2,41 @@
 import pandas as pd
 
 from email_cls_with_clustering.text_clean import (
+    drop_aadvantage_promos,
     drop_near_duplicates,
     prepare_messages,
+    preprocess_full_message,
     word_shingles,
 )
+
+
+def test_prepare_messages_strips_html_from_full_message_and_ctfidf():
+    frame = pd.DataFrame(
+        {
+            "Subject": ["(None)", None],
+            "body": [
+                "<html><head><title>Untitled Document</title></head>"
+                "<body><p>Hello team</p></body></html>",
+                "Ask <user@enron.com> if price < 5. See <Review of Enron>.",
+            ],
+        }
+    )
+    out = prepare_messages(frame, redact_pii_enabled=False)
+    html_row = out.loc[out["full_message"].str.contains("Untitled")].iloc[0]
+    plain_row = out.loc[out["full_message"].str.contains("price")].iloc[0]
+    words = html_row["ctfidf_text"].split()
+    assert "<" not in html_row["full_message"]
+    assert "<" not in html_row["body"]
+    assert "Untitled Document" in html_row["full_message"]
+    assert "Hello team" in html_row["full_message"]
+    for tag in ("html", "head", "body", "title", "p"):
+        assert tag not in words
+    assert "untitled" in words
+    assert "hello" in words
+    assert "<user@enron.com>" in plain_row["full_message"]
+    assert "price < 5" in plain_row["full_message"]
+    assert "<Review of Enron>" in plain_row["full_message"]
+    assert pd.isna(plain_row["Subject"])
 
 
 def test_embed_text_stays_raw_case_ctfidf_is_lower():
@@ -78,6 +109,26 @@ def test_exact_dedupe_prefers_earliest_date():
     assert str(out.loc[0, "date_parsed"].date()) == "2001-01-01"
 
 
+def test_mixed_tz_aware_and_naive_dates_sort():
+    """Date headers with/without offsets must not break earliest-wins dedupe."""
+    from datetime import datetime, timezone
+
+    frame = pd.DataFrame(
+        {
+            "Subject": ["Hello", "Hello!"],
+            "body": ["World", "World."],
+            "date_parsed": [
+                datetime(2001, 2, 1, tzinfo=timezone.utc),
+                datetime(2001, 1, 1),  # naive — as from parsedate without offset
+            ],
+        }
+    )
+    out = prepare_messages(frame, redact_pii_enabled=False)
+    assert len(out) == 1
+    assert out.loc[0, "embed_text"] == "Hello! World."
+    assert str(out.loc[0, "date_parsed"].date()) == "2001-01-01"
+
+
 def test_word_shingles_short_and_overlapping():
     assert word_shingles("one two", k=5) == {"one two"}
     assert word_shingles("a b c d e f", k=5) == {"a b c d e", "b c d e f"}
@@ -113,3 +164,71 @@ def test_prepare_messages_near_dup_collapses_edited_body():
     out = prepare_messages(frame, redact_pii_enabled=False)
     assert len(out) == 1
     assert "token0" in out.loc[0, "embed_text"]
+
+
+def test_preprocess_strips_sponsored_phrases():
+    msg = (
+        "Click Baker Hughes AADE Global Completion Service today. "
+        "Earn 20000 AAdvantage bonus miles and AAdvantagec bonus miles now."
+    )
+    cleaned = preprocess_full_message(msg)
+    assert "aade global completion" not in cleaned
+    assert "aadvantage" not in cleaned
+    assert "baker hughes" in cleaned
+    assert "service today" in cleaned
+    assert "miles" in cleaned
+
+
+def test_prepare_messages_drops_aadvantage_promos_and_keeps_business_mail():
+    frame = pd.DataFrame(
+        {
+            "From": [
+                "aairmail@info.aa.com",
+                "feedback@travelocity.m0.net",
+                "lsutaylor@hotmail.com",
+                "marie.heard@enron.com",
+                "newsletter@rigzone.com",
+                "someone@usaa.com",
+            ],
+            "Subject": [
+                "American Airlines AAirmail",
+                "Real Deals from Travelocity.com",
+                "Fwd: American Airlines Net SAAver Fares",
+                "RE: American Airlines ISDA",
+                "RIGZONE Industry News",
+                "Insurance documents",
+            ],
+            "body": [
+                "Welcome to the AAdvantage program.",
+                "Book now and earn 20000 AAdvantage bonus miles.",
+                "Domestic weekend getaway fares.",
+                "Please review the American Airlines ISDA draft.",
+                "Baker Hughes AADE Global Completion Service conference listing.",
+                "Your USAA documents are ready.",
+            ],
+        }
+    )
+    out = prepare_messages(frame, redact_pii_enabled=False)
+    subjects = set(out["Subject"])
+    assert "American Airlines AAirmail" not in subjects
+    assert "Real Deals from Travelocity.com" not in subjects
+    assert "Fwd: American Airlines Net SAAver Fares" not in subjects
+    assert "RE: American Airlines ISDA" in subjects
+    assert "Insurance documents" in subjects
+    assert "RIGZONE Industry News" in subjects
+    rigzone = out.loc[out["Subject"] == "RIGZONE Industry News"].iloc[0]
+    assert "aade global completion" not in rigzone["ctfidf_text"]
+    assert "baker hughes" in rigzone["ctfidf_text"]
+    assert "conference listing" in rigzone["ctfidf_text"]
+
+
+def test_drop_aadvantage_promos_matches_amr_mailbox():
+    frame = pd.DataFrame(
+        {
+            "From": ["aadvantage_customer_svc@amrcorp.com", "james.derrick@enron.com"],
+            "Subject": ["Welcome to the AAdvantage Program", "Citibank AAdvantage Visa"],
+            "body": ["Dear Susan, thank you for joining.", "customer service"],
+        }
+    )
+    out = drop_aadvantage_promos(frame)
+    assert out.empty

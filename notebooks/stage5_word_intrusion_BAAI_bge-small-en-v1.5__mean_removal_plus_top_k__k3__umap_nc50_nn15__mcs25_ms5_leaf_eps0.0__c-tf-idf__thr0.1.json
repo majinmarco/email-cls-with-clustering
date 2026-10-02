@@ -1,0 +1,465 @@
+{
+  "parent_run_id": "17b7413d70fc4785bc02af2fb7b17f23",
+  "trial_id": "BAAI_bge-small-en-v1.5__mean_removal_plus_top_k__k3__umap_nc50_nn15__mcs25_ms5_leaf_eps0.0__c-tf-idf__thr0.1",
+  "model_path": "/home/marco/development/email-cls-with-clustering/notebooks/emails_clustered_BAAI_bge-small-en-v1.5__mean_removal_plus_top_k__k3__umap_nc50_nn15__mcs25_ms5_leaf_eps0.0__c-tf-idf__thr0.1_20260930T031809_model.pkl",
+  "metrics": {
+    "noise_share": 0.15275011278065032,
+    "coherence_c_npmi": 0.07727882879280511,
+    "n_topics": 998.0,
+    "dbcv": -0.08054632503705572
+  },
+  "results": [
+    {
+      "index": 0,
+      "topic_id": 206,
+      "shown": [
+        "lawyers",
+        "creditor",
+        "outside",
+        "attorneys",
+        "lawyer",
+        "counsel"
+      ],
+      "guess": "outside",
+      "answer": "creditor",
+      "correct": false
+    },
+    {
+      "index": 1,
+      "topic_id": 785,
+      "shown": [
+        "ab",
+        "retreat",
+        "volatilities",
+        "delaney",
+        "1890",
+        "urban"
+      ],
+      "guess": "1890",
+      "answer": "volatilities",
+      "correct": false
+    },
+    {
+      "index": 2,
+      "topic_id": 568,
+      "shown": [
+        "overlay",
+        "overlays",
+        "erms",
+        "ferc",
+        "shortname",
+        "inactivated"
+      ],
+      "guess": "inactivated",
+      "answer": "ferc",
+      "correct": false
+    },
+    {
+      "index": 3,
+      "topic_id": 22,
+      "shown": [
+        "help",
+        "thanks",
+        "icsc",
+        "appreciate",
+        "thank",
+        "items"
+      ],
+      "guess": "items",
+      "answer": "items",
+      "correct": true
+    },
+    {
+      "index": 4,
+      "topic_id": 35,
+      "shown": [
+        "ferc",
+        "transmission",
+        "filed",
+        "0700",
+        "rtos",
+        "rto"
+      ],
+      "guess": "0700",
+      "answer": "0700",
+      "correct": true
+    },
+    {
+      "index": 5,
+      "topic_id": 279,
+      "shown": [
+        "distribution",
+        "customer",
+        "adjust",
+        "mckenzie",
+        "list",
+        "add"
+      ],
+      "guess": "customer",
+      "answer": "mckenzie",
+      "correct": false
+    },
+    {
+      "index": 6,
+      "topic_id": 430,
+      "shown": [
+        "tblloads",
+        "variances",
+        "loadid",
+        "detected",
+        "voters",
+        "load"
+      ],
+      "guess": "tblloads",
+      "answer": "voters",
+      "correct": false
+    },
+    {
+      "index": 7,
+      "topic_id": 318,
+      "shown": [
+        "3801",
+        "tiepoint",
+        "ectrt",
+        "foley",
+        "engytype",
+        "3401"
+      ],
+      "guess": "foley",
+      "answer": "foley",
+      "correct": true
+    },
+    {
+      "index": 8,
+      "topic_id": 703,
+      "shown": [
+        "lngchoegh",
+        "abt",
+        "galleon",
+        "intended",
+        "boiler",
+        "vessel"
+      ],
+      "guess": "lngchoegh",
+      "answer": "intended",
+      "correct": false
+    },
+    {
+      "index": 9,
+      "topic_id": 469,
+      "shown": [
+        "account",
+        "checks",
+        "donnis",
+        "92800doc",
+        "deposit",
+        "check"
+      ],
+      "guess": "donnis",
+      "answer": "92800doc",
+      "correct": false
+    },
+    {
+      "index": 10,
+      "topic_id": 792,
+      "shown": [
+        "teco",
+        "iferc",
+        "ls",
+        "om",
+        "hpl",
+        "tap"
+      ],
+      "guess": "ls",
+      "answer": "om",
+      "correct": false
+    },
+    {
+      "index": 11,
+      "topic_id": 108,
+      "shown": [
+        "ibj",
+        "isda",
+        "paragraph",
+        "master",
+        "cards",
+        "annex"
+      ],
+      "guess": "ibj",
+      "answer": "cards",
+      "correct": false
+    },
+    {
+      "index": 12,
+      "topic_id": 92,
+      "shown": [
+        "winners",
+        "names",
+        "contacts",
+        "contact",
+        "phone",
+        "list"
+      ],
+      "guess": "list",
+      "answer": "winners",
+      "correct": false
+    },
+    {
+      "index": 13,
+      "topic_id": 402,
+      "shown": [
+        "anthrax",
+        "oped",
+        "headlines",
+        "taliban",
+        "loaddate",
+        "quote"
+      ],
+      "guess": "loaddate",
+      "answer": "loaddate",
+      "correct": true
+    },
+    {
+      "index": 14,
+      "topic_id": 788,
+      "shown": [
+        "attached",
+        "summons",
+        "process",
+        "immediate",
+        "forwarded",
+        "juan"
+      ],
+      "guess": "forwarded",
+      "answer": "attached",
+      "correct": false
+    },
+    {
+      "index": 15,
+      "topic_id": 581,
+      "shown": [
+        "devil",
+        "aps",
+        "ensr",
+        "sun",
+        "standards",
+        "panda"
+      ],
+      "guess": "ensr",
+      "answer": "standards",
+      "correct": false
+    },
+    {
+      "index": 16,
+      "topic_id": 557,
+      "shown": [
+        "violationnotification",
+        "erv",
+        "memo",
+        "viewing",
+        "unknown",
+        "notification"
+      ],
+      "guess": "unknown",
+      "answer": "unknown",
+      "correct": true
+    },
+    {
+      "index": 17,
+      "topic_id": 869,
+      "shown": [
+        "eservices",
+        "svce",
+        "atc",
+        "avenue",
+        "meservicesmidwest",
+        "mheb"
+      ],
+      "guess": "avenue",
+      "answer": "avenue",
+      "correct": true
+    },
+    {
+      "index": 18,
+      "topic_id": 795,
+      "shown": [
+        "notice",
+        "fx",
+        "definitions",
+        "currency",
+        "bridge",
+        "sutton"
+      ],
+      "guess": "fx",
+      "answer": "notice",
+      "correct": false
+    },
+    {
+      "index": 19,
+      "topic_id": 628,
+      "shown": [
+        "reports",
+        "viewer",
+        "executive",
+        "fn",
+        "access",
+        "signing"
+      ],
+      "guess": "fn",
+      "answer": "signing",
+      "correct": false
+    },
+    {
+      "index": 20,
+      "topic_id": 317,
+      "shown": [
+        "cge",
+        "monday",
+        "tz6",
+        "erics",
+        "network",
+        "30506"
+      ],
+      "guess": "monday",
+      "answer": "30506",
+      "correct": false
+    },
+    {
+      "index": 21,
+      "topic_id": 932,
+      "shown": [
+        "nerc",
+        "reporting",
+        "exception",
+        "global",
+        "westin",
+        "standards"
+      ],
+      "guess": "standards",
+      "answer": "westin",
+      "correct": false
+    },
+    {
+      "index": 22,
+      "topic_id": 468,
+      "shown": [
+        "pngc",
+        "communications",
+        "oral",
+        "airport",
+        "disclose",
+        "produce"
+      ],
+      "guess": "pngc",
+      "answer": "airport",
+      "correct": false
+    },
+    {
+      "index": 23,
+      "topic_id": 89,
+      "shown": [
+        "database",
+        "access",
+        "notes",
+        "tbs",
+        "lotus",
+        "brokerage"
+      ],
+      "guess": "access",
+      "answer": "tbs",
+      "correct": false
+    },
+    {
+      "index": 24,
+      "topic_id": 849,
+      "shown": [
+        "gallup",
+        "om",
+        "ecs",
+        "rehearing",
+        "kachina",
+        "reviewers"
+      ],
+      "guess": "kachina",
+      "answer": "reviewers",
+      "correct": false
+    },
+    {
+      "index": 25,
+      "topic_id": 4,
+      "shown": [
+        "published",
+        "resume",
+        "referral",
+        "candidate",
+        "interview",
+        "resumes"
+      ],
+      "guess": "published",
+      "answer": "published",
+      "correct": true
+    },
+    {
+      "index": 26,
+      "topic_id": 666,
+      "shown": [
+        "astro",
+        "turn",
+        "exit",
+        "directions",
+        "road",
+        "left"
+      ],
+      "guess": "astro",
+      "answer": "astro",
+      "correct": true
+    },
+    {
+      "index": 27,
+      "topic_id": 910,
+      "shown": [
+        "update",
+        "blew",
+        "marketing",
+        "report",
+        "updates",
+        "monthly"
+      ],
+      "guess": "monthly",
+      "answer": "marketing",
+      "correct": false
+    },
+    {
+      "index": 28,
+      "topic_id": 884,
+      "shown": [
+        "dictionarycom",
+        "dayahead",
+        "bme",
+        "ecab",
+        "realtime",
+        "reserving"
+      ],
+      "guess": "dictionarycom",
+      "answer": "dictionarycom",
+      "correct": true
+    },
+    {
+      "index": 29,
+      "topic_id": 491,
+      "shown": [
+        "enrj",
+        "loadid",
+        "flatiron",
+        "detected",
+        "tblloads",
+        "variances"
+      ],
+      "guess": "loadid",
+      "answer": "flatiron",
+      "correct": false
+    }
+  ],
+  "n_answered": 30,
+  "score": 0.3
+}
