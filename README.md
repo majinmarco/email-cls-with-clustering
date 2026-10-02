@@ -1,32 +1,105 @@
 # email-cls-with-clustering
 
-Preprocessing and BERTopic each have their own command. A third command runs both in order. A fourth runs staged hyperparameter search. Analysis stays in `notebooks/email-analysis.ipynb`; load whichever `emails_clustered_*.csv` you want there.
+End-to-end analysis of the Enron corpus lives in [`notebooks/enron-email-analysis-e2e.ipynb`](notebooks/enron-email-analysis-e2e.ipynb). The notebook compares LDA and NMF with BERTopic, then carries one BERTopic model through labels, sentiment, the mail graph, time, and a topic classifier. Staged search for that model is `topic-model-hpo`. A single fit, including a refit of one HPO setting, is `topic-model-emails`.
 
-Data and the embedding cache live under `notebooks/`. From the repo root:
+From the repo root:
 
 ```bash
 uv sync
 ```
 
-## Preprocess
+Run the CLIs from the repo root. Open the notebook with its working directory set to `notebooks/`, where its CSV and pickle paths are relative. LLM topic labels read `OPENAI_API_KEY` from `notebooks/.env`.
 
-Reads `notebooks/emails.csv`, parses each message, builds `embed_text` from subject and body (raw case, after stripping forwarded-message banners and `[IMAGE]` placeholders), runs Presidio PII redaction on that string (before dedupe and embeddings), drops empty rows, builds scrubbed `ctfidf_text`, removes exact duplicates on `ctfidf_text`, then drops MinHash near-duplicates (5-word shingles, Jaccard ≥ 0.85). Redaction is on by default; pass `--no-pii-redaction` to skip. First run needs spaCy models: `python -m spacy download en_core_web_lg` and, for Spanish, `es_core_news_sm`. Use `--pii-lang en|es` with `preprocess-emails` or `run-email-pipeline`. When `date_parsed` and `From` are present, assigns `thread_id` (normalized subject, participant overlap, 14-day window; `In-Reply-To` when headers exist). Blast guards split self-mail loops, inbound fan-in (many From → one To, e.g. petitions), and outbound fan-out (newsletters / admin alerts). Writes `notebooks/emails_preprocessed.csv`. When `date_parsed` is present, the earliest copy is kept. `full_message` is an alias of `embed_text`.
+## What the notebook does
+
+The notebook loads `emails_preprocessed_no_spam.csv` and collapses each `thread_id` with `join_by_thread`, the same join as `topic-model-hpo --join-threads`. One row is one thread. `From`, `To`, and `Date` come from the earliest message in that thread.
+
+### EDA
+
+Weekly thread volume, length of the joined text, and the top senders and receivers. The stopword review tokenizes `ctfidf_text` with the same pattern and stop list as HPO (`TOKEN_PATTERN`, `default_stop_words`): letters only, no lemma or POS filter.
+
+### Linguistic features
+
+Gensim phrases, a TF-IDF view of those phrases, and a log-odds comparison of tokens before and after 2001-08-01. BERTopic's own c-TF-IDF uses a `CountVectorizer` with `ngram_range` `[1, 2]`. This section writes `notebooks/emails_with_tokens.csv`, which later cells reload.
+
+### Topic modeling
+
+LDA (`c_v`, `c_npmi`, `u_mass` for k in 10, 15, 20, 30, 40) and a 20-topic NMF are the baselines. BERTopic starts from the stage-4 pickle written by `topic-model-hpo` (the notebook loads the unreduced BGE mean-removal finalist, `min_cluster_size=200`, `min_samples=50`, UMAP `n_components=50`, `n_neighbors=100`). After `visualize_topics`, small topics are merged by hand with `merge_topics`. BAAI embeddings are loaded from the embedding cache, then KeyBERT and a gpt-4o labeler (`notebooks/.env`) fill `topic_representations_`. The merged model is saved as `notebooks/optimal_enron_topic_model_merged.pkl`. Later sections reload that file.
+
+### Sentiment
+
+VADER compound scores on `embed_text`, compared across merged topic names and as a weekly median over time.
+
+### Network
+
+A directed graph of `From` → `To`, keeping nodes of degree at least 3. PageRank, betweenness, and Louvain communities on the undirected graph. A community-by-topic share table drops BERTopic's outlier bin (`topic == -1`) before the columns are renamed to LLM labels.
+
+### Time
+
+Monthly share of non-outlier threads, inside the date interquartile range and only for months with at least 500 threads. Surges are the largest rise in a 3-month average share versus six months earlier. A second plot is the median hours from the first message in a thread to the second, by the quarter the thread opened. Same-timestamp pairs are mailbox copies, so only positive gaps count.
+
+### Classification
+
+TF-IDF (`min_df=5`, `max_df=0.5`, 20,000 features) and a class-weighted logistic regression predict `topic_name` on a stratified holdout. Rows with `topic == -1` stay out of the label set. The notebook prints a classification report and per-class F1.
+
+## Produce the model
+
+`preprocess-emails` reads `notebooks/emails.csv` and writes `notebooks/emails_preprocessed.csv`: parsed messages, `embed_text` and scrubbed `ctfidf_text`, Presidio redaction, exact and MinHash dedupe, and `thread_id`. The first run needs `python -m spacy download en_core_web_lg`. [`notebooks/email_preprocessed_spam_reduction.ipynb`](notebooks/email_preprocessed_spam_reduction.ipynb) labels that CSV and writes `notebooks/emails_preprocessed_no_spam.csv`, which is the HPO default and the notebook input.
+
+`run-email-pipeline` runs preprocess and then one BERTopic fit. The analysis notebook starts from the no-spam CSV and an HPO pickle.
+
+### Staged search
+
+`topic-model-hpo` runs the search in [`configs/enron-email-topic-model-hpo.json`](configs/enron-email-topic-model-hpo.json). `--join-threads` collapses each thread before embedding, matching the notebook. Saved trials are reused when the text fingerprint and vectorizer match. A failed fit or metric is recorded on that trial and skipped on resume.
 
 ```bash
-uv run preprocess-emails
+uv run topic-model-hpo --join-threads --from-stage 1
+uv run topic-model-hpo --join-threads --hdbscan-search optuna --from-stage 3
 ```
 
-If `notebooks/emails_expanded.csv` already exists, skip MIME parsing:
+`--spec` overrides the config. `--input` overrides the CSV. `--from-stage N` reads `notebooks/hpo/stage{N-1}/advanced.json` and does not re-rank earlier stages. `--hdbscan-search` is `grid` (default) or `optuna`. Each stage writes one JSON file per trial under `notebooks/hpo/stage{n}/`, plus `advanced.json` when it advances. Stages 1–3 drop trials that miss the hard gates.
+
+**Stage 1 — representation.** `BAAI/bge-small-en-v1.5` crossed with `none`, `mean_removal`, and `mean_removal_plus_top_k` (3 trials). For `+top_k`, `k` is the value in `{1, 2, 3}` with the lowest mean pairwise cosine on a 5k sample. UMAP and HDBSCAN stay fixed (`n_neighbors=15`, `n_components=10`, `min_dist=0.0`, cosine; `min_cluster_size=100`, `min_samples=10`, `eom`). Rank across representations. Advance 2.
+
+**Stage 2 — UMAP.** On each advanced representation: `n_components` in {5, 10, 25, 50} × `n_neighbors` in {15, 50, 100} (12 projections; `min_dist=0.0`, cosine). HDBSCAN stays at the stage-1 settings. Projections are cached as `.npy`. Same ranking as stage 1. Advance 3.
+
+**Stage 3 — HDBSCAN.** On each cached projection: `min_cluster_size` in {25, 50, 100, 200, 400} × `min_samples` in {1, 5, 15, 50} × `cluster_selection_method` in {eom, leaf} × `cluster_selection_epsilon` in {0.0} (40 trials per projection). When every survivor shares one representation, rank by DBCV, then coherence, topic diversity, and noise share. When more than one representation remains, use the stage-1 order. Advance 3.
+
+`--hdbscan-search optuna` replaces that grid with 40 TPE trials per projection: `min_cluster_size` in [15, 500] and `min_samples` in [1, 100] (log-scale integers, `min_samples` capped at `min_cluster_size`), `cluster_selection_method` in {eom, leaf}, `cluster_selection_epsilon` in [0, 0.5] in steps of 0.01. TPE maximizes `coherence_c_npmi` + 0.5·`topic_diversity` − 0.5·`noise_share`. Trials that miss a hard gate score below every passing trial. Studies live in `notebooks/hpo/stage3/optuna.db`, one per projection and search setup, so a rerun continues. Changing the space, objective, or gates starts a new study. Advancement still uses the ranking above.
+
+**Stage 4 — outlier reduction.** No refit. On each stage-3 finalist, try `c-tf-idf` and `embeddings` at thresholds {0.0, 0.05, 0.1, 0.2}. A reduction is kept only when `noise_share` falls and `coherence_c_npmi` does not. If nothing qualifies, the unreduced labeling is the result. The winning labeling is written as a clustered CSV, a BERTopic pickle, and a JSON sidecar:
+
+```text
+notebooks/emails_clustered_<trial_id>_<YYYYMMDDTHHMMSS>.csv
+notebooks/emails_clustered_<trial_id>_<YYYYMMDDTHHMMSS>.json
+notebooks/emails_clustered_<trial_id>_<YYYYMMDDTHHMMSS>_model.pkl
+```
+
+The notebook's BERTopic section loads that `_model.pkl`. Reload with `BERTopic.load(...)` on the same Python and BERTopic versions.
+
+**Stage 5 — finalist validation.** Listed in the spec: refit UMAP seeds `{0, 1, 2}` and report pairwise ARI, then a word-intrusion check. The command does not run it. Inspection, the manual topic merge, and the gpt-4o labels happen in the notebook.
+
+### One BERTopic fit
+
+`topic-model-emails` fits one model (or one parent MLflow run per object when `--config` is a JSON list). Use it to refit a chosen HPO setting without rerunning the search. The default input is `notebooks/emails_preprocessed.csv`; pass the no-spam CSV to match the notebook. `--join-threads` uses the same thread join. Flags override a flat `--config` JSON object whose keys match `TopicHyperparams` (`min_cluster_size`, `min_samples`, `n_neighbors`, `n_components`, `min_dist`, `umap_metric`, `hdbscan_metric`, `cluster_selection_method`, `cluster_selection_epsilon`, `embed_model`, `embed_prompt`, `post_processing`, `top_k`, `ngram_range`, and the rest of the CLI flags).
+
+This refits the unreduced finalist the notebook loads:
 
 ```bash
-uv run preprocess-emails --from-expanded
+uv run topic-model-emails \
+  --input notebooks/emails_preprocessed_no_spam.csv \
+  --join-threads \
+  --embed-model BAAI/bge-small-en-v1.5 \
+  --post-processing mean_removal \
+  --umap-components 50 \
+  --n-neighbors 100 \
+  --min-cluster-size 200 \
+  --min-samples 50 \
+  --cluster-selection-method eom \
+  --cluster-selection-epsilon 0.0
 ```
 
-`--input` and `--output` override the default paths. `--no-progress` hides the progress bars.
-
-## Topic modeling
-
-Reads `notebooks/emails_preprocessed.csv`, reuses `notebooks/embeddings_<backend>_<model>.npy` when the fingerprint matches, fits BERTopic, and writes a new file each run:
+Each run writes a new timestamped set, even if you pass `--output`:
 
 ```text
 notebooks/emails_clustered_YYYYMMDDTHHMMSS.csv
@@ -34,107 +107,20 @@ notebooks/emails_clustered_YYYYMMDDTHHMMSS.json
 notebooks/emails_clustered_YYYYMMDDTHHMMSS_model.pkl
 ```
 
-The JSON file records the hyperparameters and paths for that run. The `.pkl` is a full BERTopic pickle (UMAP/HDBSCAN included) — reload with `BERTopic.load(...)`. Same Python/BERTopic versions when loading. The datetime suffix is added even if you pass `--output`.
-
-```bash
-uv run topic-model-emails
-```
-
-Defaults match the stage-1 baseline in `configs/enron-email-topic-model-hpo.json`: UMAP `n_neighbors=15`, `n_components=10`, `min_dist=0.0`, cosine metric, `random_state` unset, `n_jobs=-1`; HDBSCAN `min_cluster_size=100`, `min_samples=10`, euclidean metric, `cluster_selection_method=eom`, `prediction_data` and `gen_min_span_tree` on; BERTopic `calculate_probabilities` on; sentence-transformer model `ibm-granite/granite-embedding-97m-multilingual-r2`.
-
-Change one run from the command line. Flags override a flat `--config` JSON file whose keys are the same names (`min_cluster_size`, `min_samples`, `n_neighbors`, `n_components`, `min_dist`, `umap_metric`, `random_state`, `n_jobs` / `--umap-n-jobs`, `hdbscan_metric`, `cluster_selection_method`, `cluster_selection_epsilon`, `prediction_data`, `gen_min_span_tree`, `calculate_probabilities`, `embed_backend`, `embed_model`, `embed_prompt`, `batch_size`, `max_seq_length`, `post_processing`, `top_k`, `ngram_range`). A JSON list of objects is one topic-model run per object. `configs/min-cluster-size.json` is a flat `min_cluster_size` sweep (50 through 500) and must not be confused with the nested HPO spec.
-
-```bash
-uv run topic-model-emails --min-cluster-size 80 --n-neighbors 20
-uv run topic-model-emails --config configs/min-cluster-size.json
-uv run topic-model-emails --config topic-params.json --min-dist 0.1
-uv run topic-model-emails --no-calculate-probabilities
-uv run topic-model-emails --embed-prompt "clustering: " --post-processing mean_removal
-uv run topic-model-emails --min-samples 15 --umap-n-jobs -1 --ngram-range 1 2
-```
-
-Embedding uses a progress bar. BERTopic prints its own progress. The OpenAI backend reads `notebooks/.env` (`--env-file` overrides that).
-
-## Evaluation
-
-Each topic-model run logs hyperparameters and scores to MLflow. The local store is `sqlite:///mlflow.db` at the repo root. `MLFLOW_TRACKING_URI` overrides it.
+`coherence_c_npmi` and `dbcv` run unless you pass `--no-coherence` or `--no-dbcv`. Both this command and `topic-model-hpo` log hyperparameters and scores to MLflow. The local store is `sqlite:///mlflow.db` at the repo root. `MLFLOW_TRACKING_URI` overrides it.
 
 ```bash
 uv run mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
-`coherence_c_npmi` and `dbcv` run unless you pass `--no-coherence` or `--no-dbcv`. If the input CSV has a `ground_truth` column, `ami` and `ari` are logged as well. The same flags work on `run-email-pipeline`.
+## Reading a trial
 
-A config file that is a list of objects is one parent run named `sweep`, with a nested run per object named `mcs-<min_cluster_size>`. Per-topic names and sizes are the `topic_info.json` artifact on each child run.
+Look at these three first. They cover mostly separate failure modes:
 
-### Metrics
+1. `coherence_c_npmi` — Gensim NPMI on the top-10 words against `ctfidf_text`. Higher means the topic words hang together.
+2. `noise_share` — Share of documents labelled `-1` before outlier reduction. Lower means more of the corpus is assigned. The gate is 0.65.
+3. `largest_topic_share` — Share of documents in the biggest non-noise topic. Lower means clustering did not collapse into one hub. The gate is 0.10.
 
-**Look at these three first.** They cover mostly orthogonal failure modes, so they stand in for the rest when picking a model:
+Hard gates in the spec, applied before ranking: `largest_topic_share` ≤ 0.10, `noise_share` ≤ 0.65, `flat_topic_share` ≤ 0.50, and `30 ≤ n_topics ≤ 300`. Trials that miss a gate do not advance.
 
-1. **`coherence_c_npmi`** — Are the topics real themes? (also tends to move with peakedness / diversity.)
-2. **`noise_share`** — How much of the corpus is usable vs left as `-1`?
-3. **`largest_topic_share`** — Did clustering collapse into one mega-topic? (coherence can look fine on that blob.)
-
-If a `ground_truth` column exists, prefer **`ami` / `ari`** over all three. Everything else below is diagnostic: use it when one of the top three is bad and you need to know *why*.
-
-Hard gates (before HPO ranking) from `configs/enron-email-topic-model-hpo.json`: `largest_topic_share ≤ 0.10`, `noise_share ≤ 0.50`, `min_peakedness ≥ 0.05`, `n_topics ≥ 30`. Across representations, rank by coherence → topic diversity → noise share → largest-topic share. Within one representation, prefer DBCV first (not comparable across embedding spaces). HPO stage 4 (outlier reduction) lowers noise without dropping coherence — see [Hyperparameter search](#hyperparameter-search).
-
-| Priority | Metric | Meaning | Better | How to optimize |
-| --- | --- | --- | --- | --- |
-| **1 — primary** | `coherence_c_npmi` | Gensim NPMI coherence on top-10 words vs `ctfidf_text` tokens. Roughly in `[-1, 1]`. | Higher | Representation quality, UMAP geometry, and HDBSCAN that keeps thematically tight clusters. Do not accept outlier reduction that lowers this. |
-| **2 — primary** | `noise_share` | Share of documents labelled `-1` (before outlier reduction). | Lower (gate: ≤ 0.50) | HPO stage 4 outlier reduction (`c-tf-idf` / `embeddings` + threshold). Softer HDBSCAN: lower `min_samples`, raise `cluster_selection_epsilon`, or slightly lower `min_cluster_size`. Do not chase zero — forced assignment often hurts coherence. |
-| **3 — primary** | `largest_topic_share` | Share of all documents in the biggest non-noise topic. | Lower (gate: ≤ 0.10) | Raise `min_cluster_size` or `min_samples`. Representation post-processing (`mean_removal`, `mean_removal_plus_top_k`) can also split a dominant hub. |
-| diagnostic | `n_topics` | Count of non-noise topics (`label ≥ 0`). | Usually higher (gate: ≥ 30) | Lower `min_cluster_size` / `min_samples`, or use `cluster_selection_method=leaf`. Too high often means fragmented noise; raise MCS if topics look like near-duplicates. |
-| diagnostic | `topic_size_entropy` | Shannon entropy of non-outlier topic sizes, divided by `log(n_topics)`. `1.0` = even split. Undefined for fewer than two topics. | Higher (balanced) | Same levers as `largest_topic_share`. Many tiny equal topics also score high. |
-| diagnostic | `topic_diversity` | Share of distinct words across all topics' top-10 lists. `1.0` = no repeated words. | Higher | Better separation and less boilerplate in `ctfidf_text`. Often moves with coherence; check when topics share the same vocabulary. |
-| diagnostic | `min_peakedness` | Minimum over topics of the max top-10 c-TF-IDF weight. | Higher (gate: ≥ 0.05) | Under-separated clusters or leftover boilerplate. Raise `min_cluster_size`, improve cleaning, or change representation. |
-| diagnostic | `peakedness_mean` | Mean of those per-topic max c-TF-IDF weights. | Higher | Same as `min_peakedness`; look at the min when a few dead topics drag the floor. |
-| diagnostic | `flat_topic_share` | Share of topics whose max top-10 c-TF-IDF is below `0.05`. | Lower | Same as peakedness. High share → reject even if average peakedness looks fine. |
-| diagnostic | `dbcv` | Density-Based Cluster Validity on the **original** (post-processed) embedding space; noise points dropped; sampled to 20k. Degenerate labelings (e.g. a cluster with fewer than 2 points after noise drop) yield NaN instead of aborting the trial. | Higher | Only compare within one representation. Tune UMAP / HDBSCAN on a fixed projection. Never compare across embed models or post-processing. |
-| diagnostic | `mean_pairwise_cosine` | Mean cosine between pairs of embedding vectors (5k sample). | Lower (less collapsed) | HPO stage 1: `mean_removal` / `mean_removal_plus_top_k`; `top_k` minimizes this. Or change `embed_model` / `embed_prompt`. |
-| diagnostic | `norm_of_mean_vector` | L2 norm of the mean of L2-normalized embeddings. | Lower | Same post-processing; high values mean a strong shared direction (anisotropy). |
-| diagnostic | `top_singular_energy_share` | Share of covariance energy in the top principal component. | Lower | `mean_removal_plus_top_k` removes leading PCs. |
-| diagnostic | `mean_max_probability` | Mean over documents of `max(topic probabilities)`. Needs `calculate_probabilities`. | Higher (sharper assignment) | Clearer clusters; Soft-HDBSCAN memberships get peaker near one cluster. |
-| diagnostic | `mean_assignment_entropy` | Mean Shannon entropy of each document's topic distribution. | Lower (less ambiguous) | Same as `mean_max_probability`. High entropy with low noise → overlapping topics. |
-| overrides top 3 | `ami` / `ari` | Adjusted Mutual Information / Adjusted Rand Index vs a `ground_truth` column (optional). Chance-corrected; ~0 = random, 1 = match. | Higher | When labels exist and match your goal taxonomy, trust these over the unsupervised top 3. |
-
-`word_intrusion` is manual (HPO stage 5): mix one outsider into a topic's top words and see if a human spots it. Not logged to MLflow.
-
-## Hyperparameter search
-
-`configs/enron-email-topic-model-hpo.json` is the config of record. A normal `topic-model-emails` / `run-email-pipeline` run stays one BERTopic fit. Staged search is a separate command:
-
-```bash
-uv run topic-model-hpo
-uv run topic-model-hpo --spec configs/enron-email-topic-model-hpo.json --from-stage 1
-uv run topic-model-hpo --input notebooks/emails_preprocessed.csv --hdbscan-search grid
-uv run topic-model-hpo --hdbscan-search optuna --from-stage 3
-```
-
-It runs representation → UMAP → HDBSCAN on cached projections → outlier reduction (stages 1–4), writes trial JSON under `notebooks/hpo/stage{n}/`, and writes full clustered CSV / model pickle / JSON sidecar only for stage-4 finalists. A failed fit or metric is recorded on that trial and skipped on resume; it does not abort the stage. Stage 5 (seed stability and word intrusion) is recorded in the spec and is not run.
-
-The screen keeps the trial budget near ~200 fits instead of a full ~960: fixed HDBSCAN picks 3 of 24 UMAP projections, then 40 HDBSCAN trials on each. Pass `--from-stage N` to resume from a previous stage's `advanced.json`. `--hdbscan-search optuna` swaps the stage-3 grid for a TPE search with the same categorical space.
-
-Each stage writes one JSON file per trial under `notebooks/hpo/stage{n}/` and, when it advances, `advanced.json` in that directory. `--from-stage N` reads `stage{N-1}/advanced.json` and does not re-rank earlier stages. Stages 1–3 drop trials that miss the hard gates and stop if none pass. A trial that errors while fitting or scoring is written with empty metrics and skipped on the next resume.
-
-**Stage 1 — representation.** Grid over embedding model × post-processing: five models (`granite-97m-multilingual`, `BAAI/bge-small-en-v1.5`, `granite-embedding-english-r2`, `Qwen3-Embedding-0.6B`, `nomic-embed-text-v1.5` with prompt `clustering: `) and `none` / `mean_removal` / `mean_removal_plus_top_k` (15 trials). For `+top_k`, `k` is chosen from `{1, 2, 3}` as the value with the lowest mean pairwise cosine on a 5k sample. UMAP and HDBSCAN stay fixed (`n_neighbors=15`, `n_components=10`, `min_dist=0.0`, cosine; `min_cluster_size=100`, `min_samples=10`, `eom`). Rank across representations by coherence, then topic diversity, then noise share, then largest-topic share. Advance 2.
-
-**Stage 2 — UMAP.** Grid on each advanced representation: `n_components` ∈ {5, 10, 25, 50} × `n_neighbors` ∈ {15, 50, 100} (12 projections each; `min_dist=0.0`, cosine). HDBSCAN stays at the stage-1 settings so the screen is only the projection. Projections are cached as `.npy`. Same across-representation ranking as stage 1. Advance 3.
-
-**Stage 3 — HDBSCAN.** Grid on each cached projection: `min_cluster_size` ∈ {25, 50, 100, 200, 400} × `min_samples` ∈ {1, 5, 15, 50} × `cluster_selection_method` ∈ {eom, leaf} × `cluster_selection_epsilon` ∈ {0.0} (40 trials per projection). When every survivor shares one representation, rank by DBCV, then coherence, topic diversity, and noise share. When more than one representation remains, use the stage-1 order instead. Advance 3. `--hdbscan-search optuna` replaces the grid with 40 TPE trials per projection over the same categories.
-
-**Stage 4 — outlier reduction.** No refit. On each stage-3 finalist, try `c-tf-idf` and `embeddings` at thresholds {0.0, 0.05, 0.1, 0.2} (8 trials). A reduction is kept only when `noise_share` falls and `coherence_c_npmi` does not. If nothing qualifies, the unreduced labeling is the result. If the fit already has zero noise, every reduction is recorded as skipped. The winning labeling is written as a clustered CSV, model pickle, and JSON sidecar.
-
-**Stage 5 — finalist validation.** Listed in the spec and not executed. It would refit UMAP seeds `{0, 1, 2}` and report pairwise ARI, then a manual word-intrusion check (30 topics × 3 finalists). Vectorizer `ngram_range` and `representation_model` are explicitly not tuned.
-
-## Both steps
-
-Runs preprocessing, then topic modeling, and prints the timestamped CSV path.
-
-```bash
-uv run run-email-pipeline --from-expanded --min-cluster-size 80
-```
-
-`--raw-input` is the preprocess input. `--preprocessed-output` is the cleaned CSV. `--output` is the clustered path before the datetime suffix. The topic-model flags above work here too.
-
-The same entry points are `scripts/preprocess_emails.py`, `scripts/topic_model_emails.py`, `scripts/topic_model_hpo.py`, and `scripts/run_pipeline.py`.
+When every trial under comparison shares one representation, rank by DBCV, then coherence, topic diversity, and noise share. DBCV is computed in that representation's embedding space, so it ranks trials inside one embedding model and post-processing. When more than one representation is in the set, rank by coherence, topic diversity, noise share, then largest-topic share. If the CSV has a `ground_truth` column, `ami` and `ari` are prepended to that order.
